@@ -30,6 +30,13 @@ export const ALL_PLATFORMS: { id: Platform; label: string; ico: string }[] = [
   { id: "telegram", label: "Telegram", ico: "TG" },
 ];
 
+export interface MediaItem {
+  kind: "image" | "video";
+  name: string;
+  dataUrl: string;
+  size: number;
+}
+
 export interface ScheduledPost {
   id: string;
   text: string;
@@ -37,6 +44,7 @@ export interface ScheduledPost {
   platforms: Platform[];
   scheduledAt: string;
   status: "queued" | "sent" | "failed" | "draft";
+  media?: MediaItem[];
   reach?: number;
   clicks?: number;
 }

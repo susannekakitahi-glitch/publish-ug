@@ -68,6 +68,23 @@ export default function Schedule() {
                   {new Date(p.scheduledAt).toLocaleString()}
                 </span>
               </div>
+              {p.media && p.media.length > 0 && (
+                <div className="media-strip" style={{ marginTop: 8 }}>
+                  {p.media.slice(0, 4).map((m, i) => (
+                    <div key={i} className="media-strip-tile">
+                      {m.dataUrl ? <img src={m.dataUrl} alt={m.name} /> : null}
+                      {m.kind === "video" && (
+                        <span className="media-strip-badge">▶</span>
+                      )}
+                    </div>
+                  ))}
+                  {p.media.length > 4 && (
+                    <div className="media-strip-tile media-strip-more">
+                      +{p.media.length - 4}
+                    </div>
+                  )}
+                </div>
+              )}
               <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
               <div className="row" style={{ marginTop: 8 }}>
                 <span className="small muted">
