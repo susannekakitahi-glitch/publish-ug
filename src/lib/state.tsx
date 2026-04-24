@@ -302,7 +302,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           postsQuota: q.posts,
           accountsQuota: q.accounts,
         });
-        if (plan === "agency" && clients.length === 0) {
+        // Fresh signup starts from a clean slate: no stale accounts / posts /
+        // clients carried over from a previous user on the same device.
+        setAccounts([]);
+        setPosts(seedPosts());
+        if (plan === "agency") {
           const starter: Client = {
             id: "c" + rid(),
             name: "My first client",
@@ -311,6 +315,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           };
           setClients([starter]);
           setCurrentClientId(starter.id);
+        } else {
+          setClients([]);
+          setCurrentClientId(null);
         }
       },
       login(phone) {
