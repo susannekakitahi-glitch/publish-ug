@@ -14,7 +14,7 @@ export default function BottomNav() {
       ? [{ to: "/org", label: "Org", ico: "◎" }]
       : showClients
         ? [{ to: "/clients", label: "Clients", ico: "⌘" }]
-        : [{ to: "/settings", label: "Billing", ico: "$" }]),
+        : []),
     { to: "/settings", label: "Me", ico: "·" },
   ];
 

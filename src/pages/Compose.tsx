@@ -462,6 +462,10 @@ function downscaleImage(
 }
 
 function capturePoster(file: File): Promise<string> {
+  // Generating a poster frame from a user video is a best-effort nicety —
+  // never let a slow/unsupported codec block the upload. We race all event
+  // paths against a 4s timeout and always resolve with either the jpeg
+  // dataUrl or "" (caller renders a generic video badge for empty posters).
   return new Promise((resolve) => {
     const v = document.createElement("video");
     const url = URL.createObjectURL(file);
@@ -469,18 +473,22 @@ function capturePoster(file: File): Promise<string> {
     v.muted = true;
     v.playsInline = true;
     v.src = url;
+
+    let settled = false;
     const done = (dataUrl: string) => {
-      URL.revokeObjectURL(url);
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
       resolve(dataUrl);
     };
-    v.onloadeddata = () => {
-      try {
-        v.currentTime = Math.min(0.2, Math.max(0, (v.duration || 1) * 0.05));
-      } catch {
-        done("");
-      }
-    };
-    v.onseeked = () => {
+    const timer = setTimeout(() => done(""), 4000);
+
+    const grab = () => {
       try {
         const w = Math.min(640, v.videoWidth || 640);
         const scale = w / (v.videoWidth || w);
@@ -496,6 +504,20 @@ function capturePoster(file: File): Promise<string> {
         done("");
       }
     };
+
+    v.onloadeddata = () => {
+      try {
+        const t = Math.min(0.2, Math.max(0, (v.duration || 1) * 0.05));
+        if (Math.abs((v.currentTime || 0) - t) < 0.01) {
+          grab();
+        } else {
+          v.currentTime = t;
+        }
+      } catch {
+        grab();
+      }
+    };
+    v.onseeked = grab;
     v.onerror = () => done("");
   });
 }
