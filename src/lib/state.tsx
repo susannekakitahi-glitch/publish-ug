@@ -64,6 +64,25 @@ export interface ConnectedAccount {
   clientId?: string;
 }
 
+export interface TrendingPost {
+  id: string;
+  platform: Platform;
+  caption: string;
+  reach: number;
+  clicks: number;
+  engagementRate: number; // 0..1
+  author: string; // anonymized handle, e.g. "+256 702 ***471"
+  postedAt: string; // ISO
+}
+
+export interface TrendingHashtag {
+  tag: string; // includes leading "#"
+  platform: Platform;
+  uses: number; // how many member posts used it this week
+  reach: number; // total reach contributed
+  deltaPct: number; // % change vs last week; +12 / -4
+}
+
 export interface Org {
   id: string;
   name: string;
@@ -72,6 +91,8 @@ export interface Org {
   seatLimit: number;
   monthlyUgx: number;
   annualUgx: number;
+  trendingPosts: TrendingPost[];
+  trendingHashtags: TrendingHashtag[];
 }
 
 export interface Client {
@@ -137,6 +158,72 @@ const SEED_ORGS: Org[] = [
     seatLimit: 1000,
     monthlyUgx: 5_000,
     annualUgx: 48_000,
+    trendingPosts: [
+      {
+        id: "t1",
+        platform: "facebook",
+        caption:
+          "Weekend market at Nakawa — fresh produce from 12 Elyon vendors, starting 8am.",
+        reach: 14_820,
+        clicks: 612,
+        engagementRate: 0.082,
+        author: "+256 702 ***471",
+        postedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      },
+      {
+        id: "t2",
+        platform: "tiktok",
+        caption:
+          "Behind the scenes: how our shea butter is processed in Gulu 🧴",
+        reach: 38_400,
+        clicks: 980,
+        engagementRate: 0.121,
+        author: "+256 772 ***019",
+        postedAt: new Date(Date.now() - 1 * 86_400_000).toISOString(),
+      },
+      {
+        id: "t3",
+        platform: "instagram",
+        caption:
+          "Our 3-day coffee taster pass is back. Limited to 50 Elyon members.",
+        reach: 9_210,
+        clicks: 444,
+        engagementRate: 0.093,
+        author: "+256 701 ***238",
+        postedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      },
+      {
+        id: "t4",
+        platform: "whatsapp",
+        caption:
+          "Loan application workshop moved to Wednesday — reply with your business name.",
+        reach: 5_720,
+        clicks: 1_204,
+        engagementRate: 0.21,
+        author: "+256 757 ***332",
+        postedAt: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+      },
+      {
+        id: "t5",
+        platform: "youtube",
+        caption: "Elyon pitch tips #3: telling your customer story in 60 sec.",
+        reach: 6_030,
+        clicks: 201,
+        engagementRate: 0.061,
+        author: "+256 704 ***885",
+        postedAt: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+      },
+    ],
+    trendingHashtags: [
+      { tag: "#MadeInUganda", platform: "instagram", uses: 64, reach: 21_400, deltaPct: 18 },
+      { tag: "#KampalaEats", platform: "tiktok", uses: 49, reach: 41_900, deltaPct: 32 },
+      { tag: "#ElyonMembers", platform: "facebook", uses: 38, reach: 12_800, deltaPct: 7 },
+      { tag: "#ShopSmallUG", platform: "instagram", uses: 31, reach: 8_900, deltaPct: -4 },
+      { tag: "#NakawaMarket", platform: "facebook", uses: 22, reach: 6_100, deltaPct: 12 },
+      { tag: "#ReelsUganda", platform: "tiktok", uses: 19, reach: 16_300, deltaPct: 22 },
+      { tag: "#BuyLocal", platform: "whatsapp", uses: 17, reach: 3_200, deltaPct: 3 },
+      { tag: "#SMEug", platform: "x", uses: 12, reach: 2_800, deltaPct: -9 },
+    ],
   },
   {
     id: "equity",
@@ -146,6 +233,47 @@ const SEED_ORGS: Org[] = [
     seatLimit: 1000,
     monthlyUgx: 5_000,
     annualUgx: 48_000,
+    trendingPosts: [
+      {
+        id: "t1",
+        platform: "linkedin",
+        caption:
+          "Equity SME loan walkthrough — Q&A with our credit team this Thursday 3pm.",
+        reach: 7_430,
+        clicks: 512,
+        engagementRate: 0.069,
+        author: "+256 772 ***144",
+        postedAt: new Date(Date.now() - 1 * 86_400_000).toISOString(),
+      },
+      {
+        id: "t2",
+        platform: "facebook",
+        caption:
+          "Meet our top 5 SME graduates of April. Congratulations team 🎉",
+        reach: 11_200,
+        clicks: 308,
+        engagementRate: 0.057,
+        author: "+256 704 ***661",
+        postedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      },
+      {
+        id: "t3",
+        platform: "whatsapp",
+        caption: "Cohort 7 enrollment is now open. Tap the link to apply.",
+        reach: 4_900,
+        clicks: 1_102,
+        engagementRate: 0.225,
+        author: "+256 778 ***020",
+        postedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      },
+    ],
+    trendingHashtags: [
+      { tag: "#EquitySME", platform: "linkedin", uses: 41, reach: 12_600, deltaPct: 14 },
+      { tag: "#SMEug", platform: "facebook", uses: 28, reach: 7_400, deltaPct: 9 },
+      { tag: "#LoanReady", platform: "linkedin", uses: 18, reach: 4_900, deltaPct: 5 },
+      { tag: "#Cohort7", platform: "whatsapp", uses: 14, reach: 2_100, deltaPct: 26 },
+      { tag: "#KampalaBiz", platform: "instagram", uses: 12, reach: 3_300, deltaPct: -2 },
+    ],
   },
 ];
 
