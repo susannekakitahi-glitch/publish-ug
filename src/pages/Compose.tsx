@@ -58,7 +58,10 @@ export default function Compose() {
       ? Infinity
       : Math.max(0, (user!.postsQuota as number) - user!.postsUsed);
 
-  const aiEligible = user?.plan === "business" || user?.plan === "agency";
+  const aiEligible =
+    user?.plan === "business" ||
+    user?.plan === "agency" ||
+    user?.plan === "org";
 
   const mediaMode: "none" | "image" | "video" =
     kind === "photo" || kind === "carousel"
@@ -71,7 +74,9 @@ export default function Compose() {
 
   const enhance = () => {
     if (!aiEligible) {
-      alert("AI caption suggestions are available on Business and Agency plans.");
+      alert(
+        "AI caption suggestions are available on Business, Agency and Org plans."
+      );
       return;
     }
     setAiThinking(true);
