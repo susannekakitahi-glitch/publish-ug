@@ -10,9 +10,11 @@ import Settings from "./pages/Settings";
 import JoinOrg from "./pages/JoinOrg";
 import OrgAdmin from "./pages/OrgAdmin";
 import Onboarding from "./pages/Onboarding";
+import Clients from "./pages/Clients";
 import BottomNav from "./components/BottomNav";
 import TopBar from "./components/TopBar";
-import { useApp } from "./lib/state";
+import BrandSwitcher from "./components/BrandSwitcher";
+import { useApp, isAgency } from "./lib/state";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user } = useApp();
@@ -24,12 +26,27 @@ export default function App() {
   const { user } = useApp();
   const loc = useLocation();
 
-  const appRoutes = ["/compose", "/schedule", "/dashboard", "/settings", "/org", "/onboarding"];
+  const appRoutes = [
+    "/compose",
+    "/schedule",
+    "/dashboard",
+    "/settings",
+    "/org",
+    "/onboarding",
+    "/clients",
+  ];
   const inApp = user && appRoutes.some((r) => loc.pathname.startsWith(r));
+  const showBrandSwitcher =
+    inApp &&
+    isAgency(user?.plan) &&
+    ["/dashboard", "/compose", "/schedule", "/clients", "/onboarding"].some(
+      (r) => loc.pathname.startsWith(r)
+    );
 
   return (
     <div className="app">
       <TopBar />
+      {showBrandSwitcher && <BrandSwitcher />}
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/pricing" element={<Pricing />} />
@@ -73,6 +90,14 @@ export default function App() {
           element={
             <Protected>
               <Settings />
+            </Protected>
+          }
+        />
+        <Route
+          path="/clients"
+          element={
+            <Protected>
+              <Clients />
             </Protected>
           }
         />

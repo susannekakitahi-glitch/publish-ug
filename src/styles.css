@@ -613,6 +613,113 @@ p {
   font-weight: 700;
 }
 
+.brand-switcher {
+  position: sticky;
+  top: 48px;
+  z-index: 9;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 8px 16px 0;
+  width: 100%;
+}
+.brand-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.brand-pill .brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.brand-pill .brand-label {
+  font-weight: 600;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.brand-pill .brand-caret {
+  color: var(--muted);
+  font-size: 10px;
+}
+.brand-menu {
+  margin-top: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 300px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+.brand-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+}
+.brand-menu-item:hover {
+  background: var(--panel);
+}
+.brand-menu-item.active {
+  background: rgba(245, 200, 66, 0.08);
+  color: var(--accent);
+}
+.brand-menu-item .brand-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.client-swatch {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.client-swatch.small-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+.client-card {
+  border-left: 4px solid transparent;
+}
+
+.quota-bar {
+  height: 8px;
+  background: var(--panel-2);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.quota-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--good));
+  transition: width 0.3s ease;
+}
+
 @media (min-width: 600px) {
   .page {
     padding: 24px 16px 120px;

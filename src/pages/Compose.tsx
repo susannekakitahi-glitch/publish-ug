@@ -1,6 +1,13 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ALL_PLATFORMS, useApp, type Platform, type MediaItem } from "../lib/state";
+import {
+  ALL_PLATFORMS,
+  isAgency,
+  scopeAccounts,
+  useApp,
+  type Platform,
+  type MediaItem,
+} from "../lib/state";
 import type { ScheduledPost } from "../lib/state";
 
 type Kind = ScheduledPost["kind"];
@@ -16,8 +23,23 @@ const KINDS: { id: Kind; label: string; hint: string }[] = [
 const MAX_CAROUSEL = 10;
 
 export default function Compose() {
-  const { accounts, schedulePost, user } = useApp();
+  const {
+    accounts: allAccounts,
+    schedulePost,
+    user,
+    clients,
+    currentClientId,
+    selectClient,
+  } = useApp();
   const nav = useNavigate();
+  const agency = isAgency(user?.plan);
+  const scopedAccounts = useMemo(
+    () => scopeAccounts(allAccounts, user?.plan, currentClientId),
+    [allAccounts, user?.plan, currentClientId]
+  );
+  const accounts = agency && currentClientId === null ? [] : scopedAccounts;
+  const needsClientPick = agency && currentClientId === null && clients.length > 0;
+  const needsFirstClient = agency && clients.length === 0;
   const [kind, setKind] = useState<Kind>("status");
   const [text, setText] = useState("");
   const [ytUrl, setYtUrl] = useState("");
@@ -117,6 +139,7 @@ export default function Compose() {
       platforms,
       scheduledAt: new Date(when).toISOString(),
       media: media.length ? media : undefined,
+      clientId: agency ? (currentClientId ?? undefined) : undefined,
     });
     nav("/schedule");
   };
@@ -128,9 +151,64 @@ export default function Compose() {
 
   const connectedSet = new Set(accounts.map((a) => a.platform));
 
+  if (needsFirstClient) {
+    return (
+      <main className="page">
+        <h1>New post</h1>
+        <div className="card">
+          <strong>Add a client first</strong>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Agency posts are always attached to a client brand. Create one to
+            unlock Compose.
+          </p>
+          <Link to="/clients" className="btn primary" style={{ marginTop: 10 }}>
+            Go to Clients
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (needsClientPick) {
+    return (
+      <main className="page">
+        <h1>New post</h1>
+        <p className="small muted">
+          Pick the client this post is for — you're currently viewing
+          <strong> all clients</strong>.
+        </p>
+        <div className="col" style={{ marginTop: 12, gap: 8 }}>
+          {clients.map((c) => (
+            <button
+              key={c.id}
+              className="btn ghost"
+              onClick={() => selectClient(c.id)}
+              style={{ justifyContent: "flex-start", gap: 10 }}
+            >
+              <span
+                className="client-swatch"
+                style={{ background: c.color }}
+                aria-hidden
+              />
+              {c.name}
+            </button>
+          ))}
+        </div>
+      </main>
+    );
+  }
+
+  const activeClient = clients.find((c) => c.id === currentClientId);
+
   return (
     <main className="page">
       <h1>New post</h1>
+      {agency && activeClient && (
+        <p className="small muted">
+          Posting as <strong>{activeClient.name}</strong> — uses that
+          brand's connected pages.
+        </p>
+      )}
       <p className="muted small">
         {quotaLeft === Infinity
           ? "Unlimited on your plan"

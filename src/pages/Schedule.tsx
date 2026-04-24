@@ -1,12 +1,25 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useApp } from "../lib/state";
+import { isAgency, scopePosts, useApp } from "../lib/state";
 
-type View = "queue" | "calendar" | "sent";
+type View = "queue" | "calendar" | "sent" | "pending";
 
 export default function Schedule() {
-  const { posts, cancelPost } = useApp();
+  const {
+    posts: allPosts,
+    cancelPost,
+    approvePost,
+    user,
+    currentClientId,
+    clients,
+  } = useApp();
   const [view, setView] = useState<View>("queue");
+  const agency = isAgency(user?.plan);
+
+  const posts = useMemo(
+    () => scopePosts(allPosts, user?.plan, currentClientId),
+    [allPosts, user?.plan, currentClientId]
+  );
 
   const queued = useMemo(
     () =>
@@ -22,8 +35,17 @@ export default function Schedule() {
         .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
     [posts]
   );
+  const pending = useMemo(
+    () =>
+      posts
+        .filter((p) => p.status === "pending_approval")
+        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)),
+    [posts]
+  );
 
   const cal = useMemo(() => buildCalendar(queued), [queued]);
+
+  const clientOf = (cid?: string) => clients.find((c) => c.id === cid);
 
   return (
     <main className="page">
@@ -41,6 +63,14 @@ export default function Schedule() {
         >
           Upcoming ({queued.length})
         </button>
+        {agency && (
+          <button
+            className={`tab ${view === "pending" ? "active" : ""}`}
+            onClick={() => setView("pending")}
+          >
+            Pending ({pending.length})
+          </button>
+        )}
         <button
           className={`tab ${view === "calendar" ? "active" : ""}`}
           onClick={() => setView("calendar")}
@@ -60,45 +90,112 @@ export default function Schedule() {
           {queued.length === 0 && (
             <p className="muted small">Nothing in your queue yet.</p>
           )}
-          {queued.map((p) => (
-            <div key={p.id} className="card">
-              <div className="row">
-                <span className="pill">{p.kind}</span>
-                <span className="small muted">
-                  {new Date(p.scheduledAt).toLocaleString()}
-                </span>
-              </div>
-              {p.media && p.media.length > 0 && (
-                <div className="media-strip" style={{ marginTop: 8 }}>
-                  {p.media.slice(0, 4).map((m, i) => (
-                    <div key={i} className="media-strip-tile">
-                      {m.dataUrl ? <img src={m.dataUrl} alt={m.name} /> : null}
-                      {m.kind === "video" && (
-                        <span className="media-strip-badge">▶</span>
-                      )}
-                    </div>
-                  ))}
-                  {p.media.length > 4 && (
-                    <div className="media-strip-tile media-strip-more">
-                      +{p.media.length - 4}
-                    </div>
-                  )}
+          {queued.map((p) => {
+            const c = clientOf(p.clientId);
+            return (
+              <div key={p.id} className="card">
+                <div className="row">
+                  <span className="pill">{p.kind}</span>
+                  <span className="small muted">
+                    {new Date(p.scheduledAt).toLocaleString()}
+                  </span>
                 </div>
-              )}
-              <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
-              <div className="row" style={{ marginTop: 8 }}>
-                <span className="small muted">
-                  {p.platforms.join(" · ")}
-                </span>
-                <button
-                  className="btn compact danger"
-                  onClick={() => cancelPost(p.id)}
-                >
-                  Cancel
-                </button>
+                {c && (
+                  <div
+                    className="row"
+                    style={{ marginTop: 6, gap: 6, justifyContent: "flex-start" }}
+                  >
+                    <span
+                      className="client-swatch small-swatch"
+                      style={{ background: c.color }}
+                    />
+                    <span className="small muted">{c.name}</span>
+                  </div>
+                )}
+                {p.media && p.media.length > 0 && (
+                  <div className="media-strip" style={{ marginTop: 8 }}>
+                    {p.media.slice(0, 4).map((m, i) => (
+                      <div key={i} className="media-strip-tile">
+                        {m.dataUrl ? <img src={m.dataUrl} alt={m.name} /> : null}
+                        {m.kind === "video" && (
+                          <span className="media-strip-badge">▶</span>
+                        )}
+                      </div>
+                    ))}
+                    {p.media.length > 4 && (
+                      <div className="media-strip-tile media-strip-more">
+                        +{p.media.length - 4}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
+                <div className="row" style={{ marginTop: 8 }}>
+                  <span className="small muted">{p.platforms.join(" · ")}</span>
+                  <button
+                    className="btn compact danger"
+                    onClick={() => cancelPost(p.id)}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
+        </div>
+      )}
+
+      {view === "pending" && agency && (
+        <div className="list">
+          {pending.length === 0 && (
+            <p className="muted small">
+              Nothing waiting for approval. Posts you create are held here
+              until the client signs off.
+            </p>
+          )}
+          {pending.map((p) => {
+            const c = clientOf(p.clientId);
+            return (
+              <div key={p.id} className="card">
+                <div className="row">
+                  <span className="pill warn">pending approval</span>
+                  <span className="small muted">
+                    {new Date(p.scheduledAt).toLocaleString()}
+                  </span>
+                </div>
+                {c && (
+                  <div
+                    className="row"
+                    style={{ marginTop: 6, gap: 6, justifyContent: "flex-start" }}
+                  >
+                    <span
+                      className="client-swatch small-swatch"
+                      style={{ background: c.color }}
+                    />
+                    <span className="small muted">{c.name}</span>
+                  </div>
+                )}
+                <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
+                <div className="row" style={{ marginTop: 8, gap: 8 }}>
+                  <span className="small muted">{p.platforms.join(" · ")}</span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      className="btn compact danger"
+                      onClick={() => cancelPost(p.id)}
+                    >
+                      Reject
+                    </button>
+                    <button
+                      className="btn compact primary"
+                      onClick={() => approvePost(p.id)}
+                    >
+                      Approve
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -133,23 +230,40 @@ export default function Schedule() {
           {sent.length === 0 && (
             <p className="muted small">No sent posts yet.</p>
           )}
-          {sent.map((p) => (
-            <div key={p.id} className="card">
-              <div className="row">
-                <span className="pill good">sent</span>
-                <span className="small muted">
-                  {new Date(p.scheduledAt).toLocaleDateString()}
-                </span>
+          {sent.map((p) => {
+            const c = clientOf(p.clientId);
+            return (
+              <div key={p.id} className="card">
+                <div className="row">
+                  <span className="pill good">sent</span>
+                  <span className="small muted">
+                    {new Date(p.scheduledAt).toLocaleDateString()}
+                  </span>
+                </div>
+                {c && (
+                  <div
+                    className="row"
+                    style={{ marginTop: 6, gap: 6, justifyContent: "flex-start" }}
+                  >
+                    <span
+                      className="client-swatch small-swatch"
+                      style={{ background: c.color }}
+                    />
+                    <span className="small muted">{c.name}</span>
+                  </div>
+                )}
+                <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
+                <div className="row">
+                  <span className="small muted">{p.platforms.join(" · ")}</span>
+                  <span className="small">
+                    {p.reach
+                      ? `${p.reach.toLocaleString()} reach · ${p.clicks ?? 0} clicks`
+                      : "—"}
+                  </span>
+                </div>
               </div>
-              <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
-              <div className="row">
-                <span className="small muted">{p.platforms.join(" · ")}</span>
-                <span className="small">
-                  {p.reach ? `${p.reach.toLocaleString()} reach · ${p.clicks ?? 0} clicks` : "—"}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </main>

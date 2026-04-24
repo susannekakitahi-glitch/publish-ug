@@ -1,17 +1,20 @@
 import { NavLink } from "react-router-dom";
-import { useApp } from "../lib/state";
+import { isAgency, useApp } from "../lib/state";
 
 export default function BottomNav() {
   const { user } = useApp();
   const showOrg = user?.orgId != null;
+  const showClients = isAgency(user?.plan);
 
-  const items: { to: string; label: string; ico: string }[] = [
-    { to: "/dashboard", label: "Home", ico: "•" },
+  const items: { to: string; label: string; ico: string; end?: boolean }[] = [
+    { to: "/", label: "Home", ico: "⌂", end: true },
     { to: "/compose", label: "Compose", ico: "+" },
     { to: "/schedule", label: "Queue", ico: "☰" },
     ...(showOrg
       ? [{ to: "/org", label: "Org", ico: "◎" }]
-      : [{ to: "/settings", label: "Billing", ico: "$" }]),
+      : showClients
+        ? [{ to: "/clients", label: "Clients", ico: "⌘" }]
+        : [{ to: "/settings", label: "Billing", ico: "$" }]),
     { to: "/settings", label: "Me", ico: "·" },
   ];
 
@@ -22,7 +25,7 @@ export default function BottomNav() {
           key={it.to + it.label}
           to={it.to}
           className={({ isActive }) => (isActive ? "active" : "")}
-          end={it.to === "/dashboard"}
+          end={it.end}
         >
           <span className="ico">{it.ico}</span>
           {it.label}

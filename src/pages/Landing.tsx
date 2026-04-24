@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
+import { useApp } from "../lib/state";
 
 export default function Landing() {
+  const { user } = useApp();
   return (
     <main className="page">
       <section className="hero">
@@ -14,12 +16,25 @@ export default function Landing() {
           Ugandan Shillings.
         </p>
         <div className="stack" style={{ marginTop: 16 }}>
-          <Link to="/signup" className="btn primary">
-            Start free — 5 posts / month
-          </Link>
-          <Link to="/pricing" className="btn ghost">
-            See paid plans
-          </Link>
+          {user ? (
+            <>
+              <Link to="/dashboard" className="btn primary">
+                Open dashboard
+              </Link>
+              <Link to="/compose" className="btn ghost">
+                + New post
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link to="/signup" className="btn primary">
+                Start free — 5 posts / month
+              </Link>
+              <Link to="/pricing" className="btn ghost">
+                See paid plans
+              </Link>
+            </>
+          )}
         </div>
       </section>
 
