@@ -7,7 +7,7 @@ export default function BottomNav() {
   const showClients = isAgency(user?.plan);
 
   const items: { to: string; label: string; ico: string; end?: boolean }[] = [
-    { to: "/", label: "Home", ico: "⌂", end: true },
+    { to: "/dashboard", label: "Home", ico: "⌂" },
     { to: "/compose", label: "Compose", ico: "+" },
     { to: "/schedule", label: "Queue", ico: "☰" },
     ...(showOrg
