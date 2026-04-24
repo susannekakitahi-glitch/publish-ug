@@ -101,21 +101,25 @@ export const PLANS: Plan[] = [
   {
     id: "org",
     name: "Org (by invite)",
-    tagline: "Discounted per-member plan for banks, co-ops & partner orgs",
+    tagline: "Business-plan access at a subsidised rate for partner orgs",
     monthlyUgx: 5_000,
     annualUgx: 48_000,
-    socialAccounts: 3,
-    monthlyPosts: 30,
+    socialAccounts: 5,
+    monthlyPosts: 50,
     teamSeats: 1,
     hidden: true,
     features: [
       "UGX 5,000 / member / month (or 48,000 / year — 2 months free)",
-      "3 social accounts · 30 posts / month",
-      "Individual MoMo billing per member",
-      "Up to 1,000 members per org",
+      "Full Business-tier access: 5 social accounts · 50 posts / month",
+      "All content types incl. Reels / Shorts · AI caption suggestions",
+      "Clicks-to-number tracking · Report downloads",
+      "Individual MoMo billing per member · up to 1,000 members",
       "Org admin console & seat usage dashboard",
     ],
-    packs: [],
+    packs: [
+      { label: "10-post pack", posts: 10, priceUgx: 4_000 },
+      { label: "Report download", priceUgx: 3_000, extra: "per report" },
+    ],
   },
 ];
 

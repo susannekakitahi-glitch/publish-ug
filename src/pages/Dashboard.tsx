@@ -72,8 +72,17 @@ export default function Dashboard() {
             {accounts.map((a) => (
               <div key={a.platform} className="row-item">
                 <div className="avatar">{a.platform.slice(0, 2).toUpperCase()}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600 }}>{a.handle}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {a.handle}
+                  </div>
                   <div className="small muted">{a.platform}</div>
                 </div>
                 <span className="dot-indicator good" />
@@ -98,7 +107,7 @@ export default function Dashboard() {
               .map((p) => (
                 <div key={p.id} className="row-item">
                   <div className="avatar">{p.kind.slice(0, 2).toUpperCase()}</div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{
                         fontWeight: 600,
@@ -109,7 +118,14 @@ export default function Dashboard() {
                     >
                       {p.text || "(media post)"}
                     </div>
-                    <div className="small muted">
+                    <div
+                      className="small muted"
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       {new Date(p.scheduledAt).toLocaleString()} · {p.platforms.length}{" "}
                       platforms
                     </div>

@@ -47,6 +47,8 @@ a {
   max-width: var(--max);
   margin: 0 auto;
   padding: 16px 16px 96px;
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
   width: 100%;
 }
 

@@ -163,7 +163,7 @@ const quotasFor = (
     case "agency":
       return { posts: "unlimited", accounts: 15 };
     case "org":
-      return { posts: 30, accounts: 3 };
+      return { posts: 50, accounts: 5 };
   }
 };
 
