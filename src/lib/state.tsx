@@ -99,7 +99,13 @@ export interface AppState {
   orgs: Org[];
   clients: Client[];
   currentClientId: string | null;
-  signup: (name: string, phone: string, plan: PlanId, orgId?: string) => void;
+  signup: (
+    name: string,
+    phone: string,
+    plan: PlanId,
+    orgId?: string,
+    billingCycle?: "monthly" | "annual"
+  ) => void;
   login: (phone: string) => boolean;
   logout: () => void;
   connectAccount: (
@@ -284,13 +290,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       orgs,
       clients,
       currentClientId,
-      signup(name, phone, plan, orgId) {
+      signup(name, phone, plan, orgId, billingCycle) {
         const q = quotasFor(plan);
         setUser({
           name,
           phone,
           plan,
-          billingCycle: "monthly",
+          billingCycle: billingCycle ?? "monthly",
           orgId,
           postsUsed: 0,
           postsQuota: q.posts,

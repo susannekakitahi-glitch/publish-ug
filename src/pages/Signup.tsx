@@ -4,9 +4,18 @@ import MomoCheckout from "../components/MomoCheckout";
 import { UGX, getPlan, type PlanId } from "../lib/pricing";
 import { useApp } from "../lib/state";
 
+const PUBLIC_PLAN_IDS = ["free", "starter", "business", "agency"] as const;
+type PublicPlanId = (typeof PUBLIC_PLAN_IDS)[number];
+
+function coercePlan(raw: string | null): PublicPlanId {
+  return (PUBLIC_PLAN_IDS as readonly string[]).includes(raw ?? "")
+    ? (raw as PublicPlanId)
+    : "free";
+}
+
 export default function Signup() {
   const [params] = useSearchParams();
-  const initialPlan = (params.get("plan") as PlanId) || "free";
+  const initialPlan: PublicPlanId = coercePlan(params.get("plan"));
   const [plan, setPlan] = useState<PlanId>(initialPlan);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");

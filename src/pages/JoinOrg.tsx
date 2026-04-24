@@ -140,7 +140,7 @@ export default function JoinOrg() {
           defaultPhone={phone}
           onCancel={() => setShowPay(false)}
           onSuccess={() => {
-            signup(name, phone, "org", org.id);
+            signup(name, phone, "org", org.id, cycle);
             nav("/onboarding");
           }}
         />
