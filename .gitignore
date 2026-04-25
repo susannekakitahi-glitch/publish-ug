@@ -8,3 +8,12 @@ dist-ssr
 .idea
 *.log
 TEST_PLAN.md
+
+# backend
+backend/.venv
+backend/__pycache__
+backend/app/__pycache__
+backend/app/_secret.py
+backend/.env
+backend/.env.*
+!backend/.env.example
