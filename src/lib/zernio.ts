@@ -60,13 +60,6 @@ export async function listProfiles(): Promise<ZernioProfile[]> {
   return r.profiles || [];
 }
 
-export async function getDefaultProfileId(): Promise<string> {
-  const profs = await listProfiles();
-  const def = profs.find((p) => p.isDefault) || profs[0];
-  if (!def) throw new Error("No Zernio profile exists yet — create one first.");
-  return def._id;
-}
-
 export async function createProfile(name: string): Promise<ZernioProfile> {
   const r = await j<{ profile: ZernioProfile }>("/profiles", {
     method: "POST",
