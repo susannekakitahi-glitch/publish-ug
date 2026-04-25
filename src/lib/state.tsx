@@ -409,14 +409,20 @@ type SetPostsFn = (updater: (prev: ScheduledPost[]) => ScheduledPost[]) => void;
 
 /** Helper: push a scheduled post to Zernio when the user is in Real OAuth mode.
  *
- * - No-op if Zernio isn't configured, mode isn't "real", or any selected
- *   platform is missing a Zernio accountId on the ConnectedAccount record
- *   (happens when the user toggled Real mode mid-flight without re-syncing).
+ * Behavior:
+ * - No-op if Zernio isn't configured or the OAuth mode isn't "real".
+ * - If none of the selected platforms have a Zernio accountId linked, the
+ *   post is marked failed with a clear reason (can be fixed by reconnecting
+ *   the account on Onboarding).
+ * - If only *some* selected platforms have a Zernio accountId, the post
+ *   still gets pushed to Zernio for the valid subset and a non-fatal
+ *   warning is stamped on the local post so /schedule can show "Posted to
+ *   2 of 3 platforms… missing: whatsapp". This avoids silently dropping
+ *   platforms while keeping the happy-path subset usable.
  * - On success, stamps `zernioPostId` on the local post.
- * - On Zernio error (4xx/5xx/network), flips the local post to status="failed"
- *   with a `failureReason` surfaced in /schedule so the user can retry.
- * - On 409 (duplicate content within 24h), also marks as failed so the user
- *   can edit + reschedule.
+ * - On Zernio error (4xx/5xx/network) including 409 duplicate-content,
+ *   flips the local post to status="failed" with a `failureReason`
+ *   surfaced in /schedule so the user can edit and retry.
  *
  * Media handling for the MVP: only items that already have a public https
  * URL are forwarded to Zernio. Local blob: / data: URLs from the composer are
@@ -482,26 +488,32 @@ async function maybePublishToZernio(
   });
 
   if (result.kind === "ok") {
-    setPosts((xs) =>
-      xs.map((x) =>
-        x.id === postId ? { ...x, zernioPostId: result.zernioPostId } : x
-      )
-    );
-    if (skippedLocalMedia > 0) {
-      // Non-fatal: the post went to Zernio but without attached media.
-      // Keep status=queued but record a note in failureReason so the UI
-      // can show a small inline warning.
-      setPosts((xs) =>
-        xs.map((x) =>
-          x.id === postId
-            ? {
-                ...x,
-                failureReason: `Posted without ${skippedLocalMedia} local file(s). Upload media with public URLs to include them.`,
-              }
-            : x
-        )
+    // Non-fatal warnings: stamped into failureReason even though status
+    // stays "queued". /schedule shows them in yellow on the queued card.
+    const warnings: string[] = [];
+    if (missing.length > 0) {
+      warnings.push(
+        `Posted to ${targets.length} of ${p.platforms.length} platforms. No Zernio accounts for: ${missing.join(", ")}.`
       );
     }
+    if (skippedLocalMedia > 0) {
+      warnings.push(
+        `Posted without ${skippedLocalMedia} local file(s). Upload media with public URLs to include them.`
+      );
+    }
+    setPosts((xs) =>
+      xs.map((x) =>
+        x.id === postId
+          ? {
+              ...x,
+              zernioPostId: result.zernioPostId,
+              ...(warnings.length > 0
+                ? { failureReason: warnings.join(" ") }
+                : {}),
+            }
+          : x
+      )
+    );
     return;
   }
 
