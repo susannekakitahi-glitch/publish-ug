@@ -75,7 +75,6 @@ export default function Dashboard() {
     // async fetch — the canonical use case. Silence the rule.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAnalytics(null);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAnalyticsLoading(true);
     getAnalyticsForProfile(activeZernioProfileId)
       .then((r) => {

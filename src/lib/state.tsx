@@ -8,6 +8,13 @@ import {
   type ReactNode,
 } from "react";
 import type { PlanId } from "./pricing";
+import {
+  publishPost,
+  zernioEnabled,
+  ZERNIO_PLATFORM,
+  type PublishMediaItem,
+  type PublishPlatform,
+} from "./zernio";
 
 export type Platform =
   | "facebook"
@@ -55,6 +62,10 @@ export interface ScheduledPost {
   reach?: number;
   clicks?: number;
   clientId?: string;
+  /** Zernio post _id once the post has been pushed to Zernio's queue. */
+  zernioPostId?: string;
+  /** Reason for status==="failed" surfaced to the user in /schedule. */
+  failureReason?: string;
 }
 
 export interface ConnectedAccount {
@@ -62,6 +73,9 @@ export interface ConnectedAccount {
   handle: string;
   connectedAt: string;
   clientId?: string;
+  /** Zernio's account `_id` — required to publish to this account via the
+   *  Zernio /v1/posts API. Absent for mock-mode / legacy connections. */
+  zernioAccountId?: string;
 }
 
 export interface TrendingPost {
@@ -139,12 +153,17 @@ export interface AppState {
   connectAccount: (
     platform: Platform,
     handle: string,
-    clientId?: string
+    clientId?: string,
+    zernioAccountId?: string
   ) => void;
   disconnectAccount: (platform: Platform, clientId?: string) => void;
   schedulePost: (p: Omit<ScheduledPost, "id" | "status">) => void;
   approvePost: (id: string) => void;
   cancelPost: (id: string) => void;
+  /** Mark a post as failed-to-publish with a human-readable reason. */
+  markPostFailed: (id: string, reason: string) => void;
+  /** Persist the Zernio post _id on a local ScheduledPost. */
+  setPostZernioId: (id: string, zernioPostId: string) => void;
   topUpPosts: (count: number) => void;
   lookupOrg: (code: string) => Org | undefined;
   setPlan: (plan: PlanId, billingCycle?: "monthly" | "annual") => void;
@@ -386,6 +405,131 @@ const loadPersisted = (): Persisted | null => {
 
 const rid = () => Math.random().toString(36).slice(2, 8);
 
+type SetPostsFn = (updater: (prev: ScheduledPost[]) => ScheduledPost[]) => void;
+
+/** Helper: push a scheduled post to Zernio when the user is in Real OAuth mode.
+ *
+ * - No-op if Zernio isn't configured, mode isn't "real", or any selected
+ *   platform is missing a Zernio accountId on the ConnectedAccount record
+ *   (happens when the user toggled Real mode mid-flight without re-syncing).
+ * - On success, stamps `zernioPostId` on the local post.
+ * - On Zernio error (4xx/5xx/network), flips the local post to status="failed"
+ *   with a `failureReason` surfaced in /schedule so the user can retry.
+ * - On 409 (duplicate content within 24h), also marks as failed so the user
+ *   can edit + reschedule.
+ *
+ * Media handling for the MVP: only items that already have a public https
+ * URL are forwarded to Zernio. Local blob: / data: URLs from the composer are
+ * skipped with a note in the failure reason, since Zernio needs a reachable
+ * URL. Proper media upload is a separate follow-up.
+ */
+async function maybePublishToZernio(
+  postId: string,
+  p: Omit<ScheduledPost, "id" | "status">,
+  accounts: ConnectedAccount[],
+  setPosts: SetPostsFn
+): Promise<void> {
+  if (!zernioEnabled()) return;
+  const oauthMode =
+    typeof window !== "undefined"
+      ? localStorage.getItem("posta-ug:oauth-mode")
+      : null;
+  if (oauthMode !== "real") return;
+
+  const clientId = p.clientId ?? null;
+  const scoped = accounts.filter((a) => (a.clientId ?? null) === clientId);
+  const targets: PublishPlatform[] = [];
+  const missing: Platform[] = [];
+  for (const plat of p.platforms) {
+    const acct = scoped.find((a) => a.platform === plat);
+    if (!acct?.zernioAccountId) {
+      missing.push(plat);
+      continue;
+    }
+    targets.push({
+      platform: ZERNIO_PLATFORM[plat],
+      accountId: acct.zernioAccountId,
+    });
+  }
+
+  if (targets.length === 0) {
+    fail(
+      setPosts,
+      postId,
+      `No Zernio-linked accounts for ${missing.join(", ") || "selected platforms"}. Reconnect on Onboarding.`
+    );
+    return;
+  }
+
+  const mediaItems: PublishMediaItem[] = [];
+  let skippedLocalMedia = 0;
+  for (const m of p.media ?? []) {
+    if (/^https?:\/\//i.test(m.dataUrl)) {
+      mediaItems.push({
+        type: m.kind,
+        url: m.dataUrl,
+      });
+    } else {
+      skippedLocalMedia += 1;
+    }
+  }
+
+  const result = await publishPost({
+    content: p.text,
+    platforms: targets,
+    scheduledFor: p.scheduledAt,
+    mediaItems: mediaItems.length ? mediaItems : undefined,
+  });
+
+  if (result.kind === "ok") {
+    setPosts((xs) =>
+      xs.map((x) =>
+        x.id === postId ? { ...x, zernioPostId: result.zernioPostId } : x
+      )
+    );
+    if (skippedLocalMedia > 0) {
+      // Non-fatal: the post went to Zernio but without attached media.
+      // Keep status=queued but record a note in failureReason so the UI
+      // can show a small inline warning.
+      setPosts((xs) =>
+        xs.map((x) =>
+          x.id === postId
+            ? {
+                ...x,
+                failureReason: `Posted without ${skippedLocalMedia} local file(s). Upload media with public URLs to include them.`,
+              }
+            : x
+        )
+      );
+    }
+    return;
+  }
+
+  if (result.kind === "duplicate") {
+    fail(setPosts, postId, `Zernio: ${result.message} Edit the text and retry.`);
+    return;
+  }
+
+  if (missing.length > 0) {
+    fail(
+      setPosts,
+      postId,
+      `Zernio: ${result.message}. Missing accounts for: ${missing.join(", ")}.`
+    );
+    return;
+  }
+
+  fail(setPosts, postId, `Zernio: ${result.message}`);
+}
+
+function fail(setPosts: SetPostsFn, id: string, reason: string): void {
+  setPosts((xs) =>
+    xs.map((x) =>
+      x.id === id ? { ...x, status: "failed" as const, failureReason: reason } : x
+    )
+  );
+}
+
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const persisted = typeof window !== "undefined" ? loadPersisted() : null;
 
@@ -476,7 +620,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       logout() {
         setUser(null);
       },
-      connectAccount(platform, handle, clientId) {
+      connectAccount(platform, handle, clientId, zernioAccountId) {
         setAccounts((a) => [
           ...a.filter(
             (x) =>
@@ -487,6 +631,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             handle,
             connectedAt: new Date().toISOString(),
             clientId,
+            zernioAccountId,
           },
         ]);
       },
@@ -501,23 +646,45 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       schedulePost(p) {
         const id = "p" + rid();
         const needsApproval = user?.plan === "agency";
+        const initialStatus: PostStatus = needsApproval
+          ? "pending_approval"
+          : "queued";
         setPosts((xs) => [
           ...xs,
-          {
-            ...p,
-            id,
-            status: needsApproval ? "pending_approval" : "queued",
-          },
+          { ...p, id, status: initialStatus },
         ]);
         setUser((u) => (u ? { ...u, postsUsed: u.postsUsed + 1 } : u));
+
+        // Fire-and-forget: push to Zernio when Real OAuth mode is on.
+        // Skip the push for Agency approval-gated posts; approvePost()
+        // re-evaluates and sends once an approver flips the status.
+        if (!needsApproval) {
+          void maybePublishToZernio(id, p, accounts, setPosts);
+        }
       },
       approvePost(id) {
         setPosts((xs) =>
           xs.map((p) => (p.id === id ? { ...p, status: "queued" } : p))
         );
+        // Once approved, push to Zernio. The scope here is the full posts
+        // array closure — find the post snapshot and retry.
+        const p = posts.find((x) => x.id === id);
+        if (p) void maybePublishToZernio(id, p, accounts, setPosts);
       },
       cancelPost(id) {
         setPosts((xs) => xs.filter((x) => x.id !== id));
+      },
+      markPostFailed(id, reason) {
+        setPosts((xs) =>
+          xs.map((p) =>
+            p.id === id ? { ...p, status: "failed", failureReason: reason } : p
+          )
+        );
+      },
+      setPostZernioId(id, zernioPostId) {
+        setPosts((xs) =>
+          xs.map((p) => (p.id === id ? { ...p, zernioPostId } : p))
+        );
       },
       topUpPosts(count) {
         setUser((u) => {

@@ -142,7 +142,8 @@ export default function Onboarding() {
         connectAccount(
           p,
           handle,
-          agency ? currentClientId ?? undefined : undefined
+          agency ? currentClientId ?? undefined : undefined,
+          a._id
         );
       }
       setLastSync(new Date().toLocaleTimeString());

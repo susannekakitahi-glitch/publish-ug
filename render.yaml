@@ -1,0 +1,26 @@
+# Render blueprint for the Posta FastAPI backend.
+#
+# Once this file is on main, sign in at render.com (GitHub login, no card),
+# click New + -> Blueprint, pick this repo, and Render will provision the
+# service below automatically. Then paste ZERNIO_API_KEY into the service's
+# Environment tab (it's marked sync: false so Render prompts for it instead
+# of reading it from this file).
+
+services:
+  - type: web
+    name: posta-backend
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    # Free tier spins down after ~15 min idle; first request after cold
+    # start takes ~30s. healthCheckPath keeps the dashboard honest about
+    # the actual app state.
+    healthCheckPath: /health
+    buildCommand: pip install .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ZERNIO_API_KEY
+        sync: false  # user sets this in the Render dashboard; never in git
+      - key: PYTHON_VERSION
+        value: "3.11.9"

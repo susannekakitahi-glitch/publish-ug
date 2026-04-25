@@ -10,7 +10,10 @@ import type { Platform } from "./state";
 
 const BASE = import.meta.env.VITE_POSTA_BACKEND || "";
 
-const ZERNIO_PLATFORM: Record<Platform, string> = {
+/** Mapping from Posta's internal platform key (e.g. "x") to the string
+ *  Zernio uses in its API (e.g. "twitter"). Exported so schedulePost() can
+ *  resolve the right value when calling POST /v1/posts. */
+export const ZERNIO_PLATFORM: Record<Platform, string> = {
   facebook: "facebook",
   instagram: "instagram",
   x: "twitter",
@@ -192,6 +195,106 @@ export async function getAnalyticsForProfile(
     return { kind: "ok", summary, rows };
   } catch (e) {
     return { kind: "error", message: (e as Error).message };
+  }
+}
+
+export interface PublishPlatform {
+  platform: string;
+  accountId: string;
+  customContent?: string;
+}
+
+export interface PublishMediaItem {
+  type: "image" | "video";
+  url: string;
+  thumbnail?: string;
+}
+
+export interface PublishPostRequest {
+  content: string;
+  platforms: PublishPlatform[];
+  scheduledFor?: string;
+  publishNow?: boolean;
+  mediaItems?: PublishMediaItem[];
+  timezone?: string;
+  hashtags?: string[];
+  title?: string;
+}
+
+export type PublishResult =
+  | { kind: "ok"; zernioPostId: string; raw: unknown }
+  | { kind: "duplicate"; message: string }
+  | { kind: "error"; status: number; message: string };
+
+/**
+ * Publish or schedule a post via the backend proxy to Zernio /v1/posts.
+ *
+ * Never throws. Returns a discriminated union so callers can distinguish:
+ * - successful schedule (keeps local post as `queued`, attaches zernioPostId),
+ * - 409 duplicate-content (Zernio blocks same text to same account within 24h),
+ * - any other error (mark the local post `failed` with the message).
+ */
+/** Pull the most useful error string from a non-2xx fetch Response.
+ *  Handles:
+ *  - plain text bodies,
+ *  - Zernio JSON ({error: "..."}),
+ *  - FastAPI-wrapped JSON ({detail: {...}} or {detail: "..."}).
+ */
+async function extractErrorMessage(r: Response, fallback: string): Promise<string> {
+  const raw = await r.text();
+  try {
+    const data = JSON.parse(raw);
+    const detail = data?.detail;
+    if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object") {
+      const inner = (detail as { error?: string; message?: string }).error
+        ?? (detail as { error?: string; message?: string }).message;
+      if (inner) return inner;
+    }
+    const topLevel = data?.error ?? data?.message;
+    if (topLevel) return topLevel;
+  } catch {
+    // fall through — not JSON, use the raw text trimmed below
+  }
+  return (raw || fallback).slice(0, 300);
+}
+
+export async function publishPost(body: PublishPostRequest): Promise<PublishResult> {
+  if (!zernioEnabled()) {
+    return { kind: "error", status: 0, message: "backend not configured" };
+  }
+  try {
+    const r = await fetch(`${requireBase()}/post`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 409) {
+      // Backend wraps upstream errors as FastAPI HTTPException(detail=...),
+      // so the body is {detail: <zernio_body>} where <zernio_body> is
+      // typically {error: "..."} from Zernio. Unwrap both layers.
+      return { kind: "duplicate", message: await extractErrorMessage(r, "Zernio rejected duplicate content") };
+    }
+    if (!r.ok) {
+      return {
+        kind: "error",
+        status: r.status,
+        message: await extractErrorMessage(r, `HTTP ${r.status}`),
+      };
+    }
+    const data = await r.json();
+    const zernioPostId =
+      data?.post?._id || data?._id || data?.id || "";
+    if (!zernioPostId) {
+      return {
+        kind: "error",
+        status: 500,
+        message: "Zernio responded without a post id",
+      };
+    }
+    return { kind: "ok", zernioPostId, raw: data };
+  } catch (e) {
+    return { kind: "error", status: 0, message: (e as Error).message };
   }
 }
 
