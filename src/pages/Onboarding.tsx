@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import {
   ALL_PLATFORMS,
   isAgency,
@@ -8,6 +8,14 @@ import {
   type Platform,
 } from "../lib/state";
 import { OAuthMock } from "../components/OAuthMock";
+import {
+  getConnectUrl,
+  getDefaultProfileId,
+  listAccounts,
+  zernioEnabled,
+} from "../lib/zernio";
+
+type Mode = "mock" | "real";
 
 export default function Onboarding() {
   const {
@@ -20,7 +28,20 @@ export default function Onboarding() {
     selectClient,
   } = useApp();
   const agency = isAgency(user?.plan);
+  const location = useLocation();
+
   const [oauthFor, setOauthFor] = useState<Platform | null>(null);
+  const [mode, setMode] = useState<Mode>(() => {
+    const saved = localStorage.getItem("posta-ug:oauth-mode");
+    return saved === "real" && zernioEnabled() ? "real" : "mock";
+  });
+  const [realBusy, setRealBusy] = useState<Platform | null>(null);
+  const [realError, setRealError] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem("posta-ug:oauth-mode", mode);
+  }, [mode]);
 
   const scoped = useMemo(
     () => scopeAccounts(allAccounts, user?.plan, currentClientId),
@@ -41,6 +62,61 @@ export default function Onboarding() {
   const needsClientPick =
     agency && currentClientId === null && clients.length > 0;
   const activeClient = clients.find((c) => c.id === currentClientId);
+
+  // Sync real accounts from Zernio on mount / when returning from OAuth.
+  async function syncFromZernio() {
+    if (mode !== "real" || !zernioEnabled()) return;
+    setRealError(null);
+    try {
+      const profileId = await getDefaultProfileId();
+      const remote = await listAccounts(profileId);
+      for (const a of remote) {
+        const platMap: Record<string, Platform> = {
+          facebook: "facebook",
+          instagram: "instagram",
+          twitter: "x",
+          linkedin: "linkedin",
+          tiktok: "tiktok",
+          youtube: "youtube",
+          whatsapp: "whatsapp",
+          telegram: "telegram",
+        };
+        const p = platMap[a.platform];
+        if (!p) continue;
+        const handle = a.username || a.name || a.platform;
+        connectAccount(
+          p,
+          handle,
+          agency ? currentClientId ?? undefined : undefined
+        );
+      }
+      setLastSync(new Date().toLocaleTimeString());
+    } catch (e) {
+      setRealError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => {
+    if (mode === "real") {
+      syncFromZernio();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, location.key]);
+
+  async function startRealConnect(p: Platform) {
+    if (!zernioEnabled()) return;
+    setRealBusy(p);
+    setRealError(null);
+    try {
+      const profileId = await getDefaultProfileId();
+      const url = await getConnectUrl(p, profileId);
+      window.open(url, "posta-oauth", "width=520,height=720");
+    } catch (e) {
+      setRealError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRealBusy(null);
+    }
+  }
 
   if (needsFirstClient) {
     return (
@@ -103,6 +179,52 @@ export default function Onboarding() {
         </p>
       )}
 
+      {zernioEnabled() && (
+        <div className="card">
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <strong>Connection mode</strong>
+            <div className="chips">
+              <button
+                className={`chip ${mode === "mock" ? "active" : ""}`}
+                onClick={() => setMode("mock")}
+                type="button"
+              >
+                Mock OAuth (demo)
+              </button>
+              <button
+                className={`chip ${mode === "real" ? "active" : ""}`}
+                onClick={() => setMode("real")}
+                type="button"
+              >
+                Real OAuth (Zernio)
+              </button>
+            </div>
+          </div>
+          <p className="small muted" style={{ marginTop: 8 }}>
+            {mode === "real"
+              ? "Real mode opens the platform's actual consent screen via Zernio. After you approve access, come back to this page and your account will appear here."
+              : "Mock mode fakes a connection for demo purposes. Switch to Real OAuth when you want to connect live accounts."}
+          </p>
+          {mode === "real" && (
+            <div className="small muted" style={{ marginTop: 4 }}>
+              {lastSync && <span>Synced at {lastSync} · </span>}
+              <button
+                className="linklike"
+                onClick={syncFromZernio}
+                type="button"
+              >
+                Re-sync now
+              </button>
+            </div>
+          )}
+          {realError && (
+            <p className="small" style={{ color: "var(--bad)", marginTop: 6 }}>
+              {realError}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <div className="small muted">
           {agency
@@ -113,24 +235,27 @@ export default function Onboarding() {
           {ALL_PLATFORMS.map((p) => {
             const isConn = connected.has(p.id);
             const atCap = !isConn && totalUsed >= cap;
+            const busy = realBusy === p.id;
             return (
               <button
                 key={p.id}
                 className={`plat ${isConn ? "active" : ""}`}
-                disabled={atCap}
+                disabled={atCap || busy}
                 onClick={() => {
                   if (isConn) {
                     disconnectAccount(
                       p.id,
                       agency ? currentClientId ?? undefined : undefined
                     );
+                  } else if (mode === "real") {
+                    startRealConnect(p.id);
                   } else {
                     setOauthFor(p.id);
                   }
                 }}
               >
                 <span className="ico">{p.ico}</span>
-                {p.label}
+                {busy ? "…" : p.label}
               </button>
             );
           })}

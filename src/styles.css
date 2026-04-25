@@ -955,3 +955,13 @@ p {
     transform: rotate(360deg);
   }
 }
+
+.linklike {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
