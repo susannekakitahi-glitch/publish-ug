@@ -550,10 +550,13 @@ function applyZernioStatus(
 
     if (post.status === "published") {
       next.status = "sent";
+      // Preserve any pre-existing informational warning (e.g. the
+      // "Posted without N local file(s)" stamp from maybePublishToZernio)
+      // when Zernio confirms the post published cleanly.
       next.failureReason =
         failedPlats.length > 0
           ? summarizeFailures(failedPlats)
-          : undefined;
+          : local.failureReason;
     } else if (post.status === "partial") {
       // Some platforms published, some failed — keep the post as "sent"
       // but stamp the per-platform failure reason.
