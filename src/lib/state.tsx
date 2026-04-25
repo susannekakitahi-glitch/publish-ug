@@ -100,6 +100,8 @@ export interface Client {
   name: string;
   color: string;
   createdAt: string;
+  /** Zernio profile ID for this client's social accounts (per-tenant). */
+  zernioProfileId?: string;
 }
 
 export interface User {
@@ -111,6 +113,11 @@ export interface User {
   postsUsed: number;
   postsQuota: number | "unlimited";
   accountsQuota: number | "unlimited";
+  /** Zernio profile ID scoping this user's social accounts.
+   *  Lazily provisioned on first Real OAuth use so demo/mock users don't
+   *  consume the Zernio free-tier profile quota. Agency users keep per-client
+   *  profile IDs on the Client record instead. */
+  zernioProfileId?: string;
 }
 
 export interface AppState {
@@ -145,6 +152,10 @@ export interface AppState {
   renameClient: (id: string, name: string) => void;
   removeClient: (id: string) => void;
   selectClient: (id: string | null) => void;
+  /** Persist the Zernio profile ID for the current user. */
+  setUserZernioProfileId: (profileId: string) => void;
+  /** Persist the Zernio profile ID for a specific client (Agency users). */
+  setClientZernioProfileId: (clientId: string, profileId: string) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -556,6 +567,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       },
       selectClient(id) {
         setCurrentClientId(id);
+      },
+      setUserZernioProfileId(profileId) {
+        setUser((u) => (u ? { ...u, zernioProfileId: profileId } : u));
+      },
+      setClientZernioProfileId(clientId, profileId) {
+        setClients((xs) =>
+          xs.map((c) => (c.id === clientId ? { ...c, zernioProfileId: profileId } : c))
+        );
       },
     }),
     [user, posts, accounts, orgs, clients, currentClientId]
