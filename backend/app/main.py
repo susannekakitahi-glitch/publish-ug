@@ -122,27 +122,69 @@ async def get_connect_url(
         return await _raise(r)
 
 
+class PostPlatform(BaseModel):
+    platform: str
+    accountId: str
+    customContent: Optional[str] = None
+
+
+class PostMediaItem(BaseModel):
+    type: str  # "image" | "video"
+    url: str
+    thumbnail: Optional[str] = None
+
+
 class PostIn(BaseModel):
-    profileId: str
-    text: str
-    socialAccountIds: list[str]
-    scheduledAt: Optional[str] = None  # ISO 8601
-    mediaUrls: Optional[list[str]] = None
+    """Subset of Zernio's POST /v1/posts body that Posta needs.
+
+    Posta keeps clientId / scheduledFor / per-platform overrides server-side
+    via this proxy so the API key never leaves the box. Anything we don't
+    expose here is currently out of scope (recycling, queues, ad campaigns).
+    """
+
+    content: str
+    platforms: list[PostPlatform]
+    scheduledFor: Optional[str] = None  # ISO 8601, future timestamp
+    publishNow: bool = False
+    mediaItems: Optional[list[PostMediaItem]] = None
+    timezone: Optional[str] = None
+    hashtags: Optional[list[str]] = None
+    title: Optional[str] = None
 
 
 @app.post("/post")
 async def create_post(body: PostIn) -> Any:
+    """Proxy to Zernio's POST /v1/posts.
+
+    Note: route exposed as /post (singular) for Posta backwards-compat with
+    the earlier mock; the upstream Zernio path is /v1/posts (plural).
+    """
+    # Validate every platform in the body against the allow-list before we
+    # touch Zernio. Avoids leaking a useful error message about unsupported
+    # platforms to whoever's calling this proxy.
+    for p in body.platforms:
+        if p.platform not in ALLOWED_PLATFORMS:
+            raise HTTPException(400, f"Unsupported platform: {p.platform}")
+
     payload: dict[str, Any] = {
-        "profileId": body.profileId,
-        "text": body.text,
-        "socialAccountIds": body.socialAccountIds,
+        "content": body.content,
+        "platforms": [p.model_dump(exclude_none=True) for p in body.platforms],
     }
-    if body.scheduledAt:
-        payload["scheduledAt"] = body.scheduledAt
-    if body.mediaUrls:
-        payload["mediaUrls"] = body.mediaUrls
+    if body.scheduledFor:
+        payload["scheduledFor"] = body.scheduledFor
+    if body.publishNow:
+        payload["publishNow"] = True
+    if body.mediaItems:
+        payload["mediaItems"] = [m.model_dump(exclude_none=True) for m in body.mediaItems]
+    if body.timezone:
+        payload["timezone"] = body.timezone
+    if body.hashtags:
+        payload["hashtags"] = body.hashtags
+    if body.title:
+        payload["title"] = body.title
+
     async with _client() as c:
-        r = await c.post("/post", json=payload)
+        r = await c.post("/posts", json=payload)
         return await _raise(r)
 
 
