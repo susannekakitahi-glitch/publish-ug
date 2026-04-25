@@ -24,6 +24,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 ZERNIO_BASE = "https://zernio.com/api/v1"
@@ -212,9 +213,19 @@ async def get_post_analytics(post_id: str) -> Any:
     Requires the Analytics add-on ($10/mo) — upstream returns 402 when it
     is not enabled; we forward that verbatim so the frontend can decide
     whether to fall back to seeded numbers.
+
+    Zernio also returns 202 while analytics are still syncing for a freshly
+    published post; we forward the 202 so the frontend poller defers
+    instead of treating the empty body as "analytics = 0".
     """
     async with _client() as c:
         r = await c.get("/analytics", params={"postId": post_id})
+        if r.status_code == 202:
+            try:
+                body = r.json()
+            except Exception:
+                body = {"status": "syncing"}
+            return JSONResponse(status_code=202, content=body)
         return await _raise(r)
 
 

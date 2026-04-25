@@ -572,8 +572,8 @@ function applyZernioStatus(
   // transient network blip doesn't flip a real "sent" post back to "queued".
 
   if (analytics.kind === "ok" && next.status === "sent") {
-    next.reach = analytics.reach || next.reach;
-    next.clicks = analytics.clicks || next.clicks;
+    next.reach = analytics.reach ?? next.reach;
+    next.clicks = analytics.clicks ?? next.clicks;
   }
 
   return next;
