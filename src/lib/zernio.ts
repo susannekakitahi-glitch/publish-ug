@@ -93,3 +93,126 @@ export async function getConnectUrl(
   );
   return r.authUrl;
 }
+
+/** Shape of one post row inside the /analytics paginated list. */
+export interface ZernioAnalyticsRow {
+  postId?: string;
+  status?: string;
+  content?: string;
+  publishedAt?: string;
+  platform?: string;
+  analytics?: {
+    impressions?: number;
+    reach?: number;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    clicks?: number;
+    views?: number;
+    engagementRate?: number;
+  };
+  platformAnalytics?: Array<{
+    platform?: string;
+    analytics?: {
+      impressions?: number;
+      reach?: number;
+      likes?: number;
+      comments?: number;
+      shares?: number;
+      clicks?: number;
+    };
+  }>;
+}
+
+/** Rollup computed from a ZernioAnalyticsRow[] for use in the Dashboard. */
+export interface AnalyticsSummary {
+  posts: number;
+  impressions: number;
+  reach: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  clicks: number;
+  engagementRate: number;
+}
+
+export const EMPTY_SUMMARY: AnalyticsSummary = {
+  posts: 0,
+  impressions: 0,
+  reach: 0,
+  likes: 0,
+  comments: 0,
+  shares: 0,
+  clicks: 0,
+  engagementRate: 0,
+};
+
+export type AnalyticsResult =
+  | { kind: "ok"; summary: AnalyticsSummary; rows: ZernioAnalyticsRow[] }
+  | { kind: "addon_required"; message: string }
+  | { kind: "empty" }
+  | { kind: "error"; message: string };
+
+/**
+ * Fetch post analytics for a profile and compute a dashboard-friendly rollup.
+ *
+ * Returns `addon_required` when Zernio replies 402 (the Analytics add-on is
+ * $10/mo on top of the base plan) so the UI can render an upsell instead of a
+ * hard error. Returns `empty` when the profile has no posts in the window
+ * (the common new-user case). `error` is reserved for unexpected failures.
+ */
+export async function getAnalyticsForProfile(
+  profileId: string,
+  fromDate?: string,
+  toDate?: string
+): Promise<AnalyticsResult> {
+  if (!zernioEnabled()) return { kind: "error", message: "backend not configured" };
+  const qs = new URLSearchParams({ profileId, limit: "100" });
+  if (fromDate) qs.set("fromDate", fromDate);
+  if (toDate) qs.set("toDate", toDate);
+  try {
+    const r = await fetch(`${requireBase()}/analytics?${qs}`);
+    if (r.status === 402) {
+      return {
+        kind: "addon_required",
+        message:
+          "Zernio analytics add-on required ($10/mo) to see live reach, engagement and clicks.",
+      };
+    }
+    if (!r.ok) {
+      const text = await r.text();
+      return { kind: "error", message: `${r.status} ${text.slice(0, 200)}` };
+    }
+    const data = await r.json();
+    const rows: ZernioAnalyticsRow[] = Array.isArray(data)
+      ? data
+      : data?.results || data?.posts || [];
+    if (!rows.length) return { kind: "empty" };
+    const summary = rollupAnalytics(rows);
+    return { kind: "ok", summary, rows };
+  } catch (e) {
+    return { kind: "error", message: (e as Error).message };
+  }
+}
+
+function rollupAnalytics(rows: ZernioAnalyticsRow[]): AnalyticsSummary {
+  const out: AnalyticsSummary = { ...EMPTY_SUMMARY };
+  let engSum = 0;
+  let engCount = 0;
+  for (const row of rows) {
+    const a = row.analytics || {};
+    out.posts += 1;
+    out.impressions += a.impressions || 0;
+    out.reach += a.reach || 0;
+    out.likes += a.likes || 0;
+    out.comments += a.comments || 0;
+    out.shares += a.shares || 0;
+    out.clicks += a.clicks || 0;
+    if (typeof a.engagementRate === "number") {
+      engSum += a.engagementRate;
+      engCount += 1;
+    }
+  }
+  out.engagementRate = engCount ? +(engSum / engCount).toFixed(2) : 0;
+  return out;
+}

@@ -6,6 +6,8 @@ Keeps the ZERNIO_API_KEY off the browser. Exposes a narrow surface:
   GET  /profiles/{pid}/accounts          list connected social accounts
   GET  /connect/{platform}?profileId=..  return the hosted-OAuth URL
   POST /post                             publish or schedule a post
+  GET  /analytics?profileId=..           aggregated post analytics
+  GET  /analytics/follower-stats         follower counts / growth
 
 CORS is open; auth between frontend and backend is deliberately light because
 the UG/Africa MVP is still pre-prod. The only sensitive value that must never
@@ -141,4 +143,61 @@ async def create_post(body: PostIn) -> Any:
         payload["mediaUrls"] = body.mediaUrls
     async with _client() as c:
         r = await c.post("/post", json=payload)
+        return await _raise(r)
+
+
+@app.get("/analytics")
+async def get_analytics(
+    profileId: Optional[str] = Query(None),
+    platform: Optional[str] = Query(None),
+    fromDate: Optional[str] = Query(None),
+    toDate: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    sortBy: Optional[str] = Query(None),
+    order: Optional[str] = Query(None),
+) -> Any:
+    params: dict[str, Any] = {"limit": limit, "page": page}
+    if profileId:
+        params["profileId"] = profileId
+    if platform:
+        if platform not in ALLOWED_PLATFORMS:
+            raise HTTPException(400, f"Unsupported platform: {platform}")
+        params["platform"] = platform
+    if fromDate:
+        params["fromDate"] = fromDate
+    if toDate:
+        params["toDate"] = toDate
+    if sortBy:
+        params["sortBy"] = sortBy
+    if order:
+        params["order"] = order
+    async with _client() as c:
+        r = await c.get("/analytics", params=params)
+        return await _raise(r)
+
+
+@app.get("/analytics/follower-stats")
+async def get_follower_stats(
+    profileId: Optional[str] = Query(None),
+    accountIds: Optional[str] = Query(None),
+    fromDate: Optional[str] = Query(None),
+    toDate: Optional[str] = Query(None),
+    granularity: Optional[str] = Query(None),
+) -> Any:
+    params: dict[str, Any] = {}
+    if profileId:
+        params["profileId"] = profileId
+    if accountIds:
+        params["accountIds"] = accountIds
+    if fromDate:
+        params["fromDate"] = fromDate
+    if toDate:
+        params["toDate"] = toDate
+    if granularity:
+        if granularity not in {"daily", "weekly", "monthly"}:
+            raise HTTPException(400, f"Unsupported granularity: {granularity}")
+        params["granularity"] = granularity
+    async with _client() as c:
+        r = await c.get("/accounts/follower-stats", params=params)
         return await _raise(r)
