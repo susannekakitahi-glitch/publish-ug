@@ -9,8 +9,8 @@ import {
 } from "../lib/state";
 import { OAuthMock } from "../components/OAuthMock";
 import {
+  createProfile,
   getConnectUrl,
-  getDefaultProfileId,
   listAccounts,
   zernioEnabled,
 } from "../lib/zernio";
@@ -26,6 +26,8 @@ export default function Onboarding() {
     clients,
     currentClientId,
     selectClient,
+    setUserZernioProfileId,
+    setClientZernioProfileId,
   } = useApp();
   const agency = isAgency(user?.plan);
   const location = useLocation();
@@ -63,12 +65,35 @@ export default function Onboarding() {
     agency && currentClientId === null && clients.length > 0;
   const activeClient = clients.find((c) => c.id === currentClientId);
 
+  /**
+   * Get the Zernio profile ID for the *current tenant scope* (user or
+   * client for Agency users), lazily creating it on first use so demo /
+   * mock-only users never burn through the Zernio free-tier profile quota.
+   */
+  async function ensureTenantProfileId(): Promise<string | null> {
+    if (!user) return null;
+    if (agency) {
+      if (!activeClient) return null;
+      if (activeClient.zernioProfileId) return activeClient.zernioProfileId;
+      const prof = await createProfile(
+        `${user.name} — ${activeClient.name}`
+      );
+      setClientZernioProfileId(activeClient.id, prof._id);
+      return prof._id;
+    }
+    if (user.zernioProfileId) return user.zernioProfileId;
+    const prof = await createProfile(user.name || user.phone);
+    setUserZernioProfileId(prof._id);
+    return prof._id;
+  }
+
   // Sync real accounts from Zernio on mount / when returning from OAuth.
   async function syncFromZernio() {
     if (mode !== "real" || !zernioEnabled()) return;
     setRealError(null);
     try {
-      const profileId = await getDefaultProfileId();
+      const profileId = await ensureTenantProfileId();
+      if (!profileId) return;
       const remote = await listAccounts(profileId);
       for (const a of remote) {
         const platMap: Record<string, Platform> = {
@@ -108,7 +133,11 @@ export default function Onboarding() {
     setRealBusy(p);
     setRealError(null);
     try {
-      const profileId = await getDefaultProfileId();
+      const profileId = await ensureTenantProfileId();
+      if (!profileId) {
+        setRealError("Could not resolve a Zernio profile for this tenant.");
+        return;
+      }
       const url = await getConnectUrl(p, profileId);
       window.open(url, "posta-oauth", "width=520,height=720");
     } catch (e) {
