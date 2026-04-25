@@ -6,7 +6,9 @@ Keeps the ZERNIO_API_KEY off the browser. Exposes a narrow surface:
   GET  /profiles/{pid}/accounts          list connected social accounts
   GET  /connect/{platform}?profileId=..  return the hosted-OAuth URL
   POST /post                             publish or schedule a post
+  GET  /posts/{id}                       per-post status + platform results
   GET  /analytics?profileId=..           aggregated post analytics
+  GET  /analytics/post/{id}              single-post analytics (addon gated)
   GET  /analytics/follower-stats         follower counts / growth
 
 CORS is open; auth between frontend and backend is deliberately light because
@@ -185,6 +187,34 @@ async def create_post(body: PostIn) -> Any:
 
     async with _client() as c:
         r = await c.post("/posts", json=payload)
+        return await _raise(r)
+
+
+@app.get("/posts/{post_id}")
+async def get_post(post_id: str) -> Any:
+    """Proxy to Zernio's GET /v1/posts/{postId}.
+
+    Returns per-post status (scheduled / published / failed / partial) plus
+    per-platform results including platformPostUrl for published platforms
+    and error messages for failed ones. Free endpoint — does not require
+    the Analytics add-on.
+    """
+    async with _client() as c:
+        r = await c.get(f"/posts/{post_id}")
+        return await _raise(r)
+
+
+@app.get("/analytics/post/{post_id}")
+async def get_post_analytics(post_id: str) -> Any:
+    """Proxy to Zernio's GET /v1/analytics?postId=..., per-post variant.
+
+    Returns reach / impressions / engagement / clicks for a single post.
+    Requires the Analytics add-on ($10/mo) — upstream returns 402 when it
+    is not enabled; we forward that verbatim so the frontend can decide
+    whether to fall back to seeded numbers.
+    """
+    async with _client() as c:
+        r = await c.get("/analytics", params={"postId": post_id})
         return await _raise(r)
 
 
