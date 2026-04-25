@@ -9,11 +9,14 @@ import {
 } from "react";
 import type { PlanId } from "./pricing";
 import {
+  getPostAnalytics,
+  getPostStatus,
   publishPost,
   zernioEnabled,
   ZERNIO_PLATFORM,
   type PublishMediaItem,
   type PublishPlatform,
+  type ZernioPlatformResult,
 } from "./zernio";
 
 export type Platform =
@@ -164,6 +167,11 @@ export interface AppState {
   markPostFailed: (id: string, reason: string) => void;
   /** Persist the Zernio post _id on a local ScheduledPost. */
   setPostZernioId: (id: string, zernioPostId: string) => void;
+  /** Poll Zernio for the status + per-platform results of every local post
+   *  with a zernioPostId that isn't in a terminal state yet; updates local
+   *  post status / reach / clicks / failureReason from upstream. No-op in
+   *  mock mode (no zernioPostId to poll). */
+  syncPostStatuses: () => Promise<void>;
   topUpPosts: (count: number) => void;
   lookupOrg: (code: string) => Org | undefined;
   setPlan: (plan: PlanId, billingCycle?: "monthly" | "annual") => void;
@@ -534,6 +542,66 @@ async function maybePublishToZernio(
   fail(setPosts, postId, `Zernio: ${result.message}`);
 }
 
+/** Merge Zernio's upstream post status + per-post analytics into a local
+ *  ScheduledPost. Handles all upstream status variants and surfaces
+ *  platform-level failures with readable reasons (e.g.
+ *  "Failed on instagram: rate limited"). On analytics 402 / errors leaves
+ *  reach/clicks untouched so seeded numbers stay as a fallback. */
+function applyZernioStatus(
+  local: ScheduledPost,
+  status: Awaited<ReturnType<typeof getPostStatus>>,
+  analytics: Awaited<ReturnType<typeof getPostAnalytics>>
+): ScheduledPost {
+  const next: ScheduledPost = { ...local };
+
+  if (status.kind === "ok") {
+    const { post } = status;
+    const platforms = post.platforms ?? [];
+    const failedPlats = platforms.filter((x) => x.status === "failed");
+    const publishedPlats = platforms.filter((x) => x.status === "published");
+
+    if (post.status === "published") {
+      next.status = "sent";
+      // Preserve any pre-existing informational warning (e.g. the
+      // "Posted without N local file(s)" stamp from maybePublishToZernio)
+      // when Zernio confirms the post published cleanly.
+      next.failureReason =
+        failedPlats.length > 0
+          ? summarizeFailures(failedPlats)
+          : local.failureReason;
+    } else if (post.status === "partial") {
+      // Some platforms published, some failed — keep the post as "sent"
+      // but stamp the per-platform failure reason.
+      next.status = publishedPlats.length > 0 ? "sent" : "failed";
+      next.failureReason = summarizeFailures(failedPlats);
+    } else if (post.status === "failed") {
+      next.status = "failed";
+      next.failureReason =
+        summarizeFailures(failedPlats) ||
+        next.failureReason ||
+        "Zernio reported the post as failed.";
+    }
+    // "scheduled" / "draft" / unknown → leave local status alone.
+  }
+  // status.kind === "not_found" | "error" → leave local state alone so a
+  // transient network blip doesn't flip a real "sent" post back to "queued".
+
+  if (analytics.kind === "ok" && next.status === "sent") {
+    next.reach = analytics.reach ?? next.reach;
+    next.clicks = analytics.clicks ?? next.clicks;
+  }
+
+  return next;
+}
+
+function summarizeFailures(failed: ZernioPlatformResult[]): string | undefined {
+  if (failed.length === 0) return undefined;
+  const parts = failed.map(
+    (f) => `${f.platform}${f.error ? `: ${f.error}` : ""}`
+  );
+  return `Failed on ${parts.join("; ")}`;
+}
+
 function fail(setPosts: SetPostsFn, id: string, reason: string): void {
   setPosts((xs) =>
     xs.map((x) =>
@@ -696,6 +764,34 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setPostZernioId(id, zernioPostId) {
         setPosts((xs) =>
           xs.map((p) => (p.id === id ? { ...p, zernioPostId } : p))
+        );
+      },
+      async syncPostStatuses() {
+        if (!zernioEnabled()) return;
+        // Only poll posts that are (a) linked to Zernio, (b) not in a
+        // terminal-for-this-session state (failed stays failed; sent posts
+        // can still have analytics arrive late, so we keep re-polling them).
+        const targets = posts.filter(
+          (p) =>
+            p.zernioPostId &&
+            p.status !== "failed" &&
+            p.status !== "draft" &&
+            p.status !== "pending_approval"
+        );
+        if (targets.length === 0) return;
+
+        await Promise.all(
+          targets.map(async (p) => {
+            const id = p.id;
+            const zid = p.zernioPostId!;
+            const [status, analytics] = await Promise.all([
+              getPostStatus(zid),
+              getPostAnalytics(zid),
+            ]);
+            setPosts((xs) =>
+              xs.map((x) => (x.id === id ? applyZernioStatus(x, status, analytics) : x))
+            );
+          })
         );
       },
       topUpPosts(count) {

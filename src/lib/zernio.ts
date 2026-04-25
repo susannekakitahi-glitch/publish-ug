@@ -298,6 +298,117 @@ export async function publishPost(body: PublishPostRequest): Promise<PublishResu
   }
 }
 
+/** Per-platform result inside a Zernio post document. */
+export interface ZernioPlatformResult {
+  platform: string;
+  status: "pending" | "published" | "failed" | string;
+  error?: string;
+  platformPostUrl?: string;
+  platformPostId?: string;
+}
+
+/** Post-level status as reported by Zernio's GET /v1/posts/{id}. */
+export interface ZernioPostStatus {
+  _id: string;
+  status: "scheduled" | "published" | "failed" | "partial" | "draft" | string;
+  platforms: ZernioPlatformResult[];
+  publishedAt?: string;
+  scheduledFor?: string;
+}
+
+export type PostStatusResult =
+  | { kind: "ok"; post: ZernioPostStatus }
+  | { kind: "not_found" }
+  | { kind: "error"; status: number; message: string };
+
+/** Fetch a Zernio post's upstream status + per-platform results.
+ *
+ * Used by the /schedule poller to reconcile local queued/sent state with
+ * what Zernio actually did. Never throws — callers branch on `kind`.
+ */
+export async function getPostStatus(
+  zernioPostId: string
+): Promise<PostStatusResult> {
+  if (!zernioEnabled()) {
+    return { kind: "error", status: 0, message: "backend not configured" };
+  }
+  try {
+    const r = await fetch(
+      `${requireBase()}/posts/${encodeURIComponent(zernioPostId)}`
+    );
+    if (r.status === 404) return { kind: "not_found" };
+    if (!r.ok) {
+      return {
+        kind: "error",
+        status: r.status,
+        message: await extractErrorMessage(r, `HTTP ${r.status}`),
+      };
+    }
+    const data = await r.json();
+    const post = (data?.post ?? data) as Partial<ZernioPostStatus>;
+    if (!post?._id || !Array.isArray(post.platforms)) {
+      return { kind: "error", status: 500, message: "malformed post response" };
+    }
+    return {
+      kind: "ok",
+      post: {
+        _id: post._id,
+        status: post.status ?? "scheduled",
+        platforms: post.platforms,
+        publishedAt: post.publishedAt,
+        scheduledFor: post.scheduledFor,
+      },
+    };
+  } catch (e) {
+    return { kind: "error", status: 0, message: (e as Error).message };
+  }
+}
+
+export type PostAnalyticsResult =
+  | { kind: "ok"; reach: number; clicks: number; impressions: number }
+  | { kind: "addon_required" }
+  | { kind: "not_found" }
+  | { kind: "error"; message: string };
+
+/** Fetch reach/clicks/impressions for a single Zernio post.
+ *
+ * Requires the Zernio Analytics add-on — returns `addon_required` when the
+ * upstream replies 402. Callers should fall back silently (keep seeded or
+ * zero numbers) in that case.
+ */
+export async function getPostAnalytics(
+  zernioPostId: string
+): Promise<PostAnalyticsResult> {
+  if (!zernioEnabled()) return { kind: "error", message: "backend not configured" };
+  try {
+    const r = await fetch(
+      `${requireBase()}/analytics/post/${encodeURIComponent(zernioPostId)}`
+    );
+    if (r.status === 402) return { kind: "addon_required" };
+    if (r.status === 404) return { kind: "not_found" };
+    // Zernio returns 202 while analytics are still syncing for a fresh
+    // post; treat as "not ready yet" — the next poll will pick it up.
+    if (r.status === 202) return { kind: "not_found" };
+    if (!r.ok) {
+      return { kind: "error", message: `${r.status}` };
+    }
+    const data = await r.json();
+    const row =
+      (data?.post as ZernioAnalyticsRow | undefined) ??
+      (Array.isArray(data?.results) ? (data.results[0] as ZernioAnalyticsRow) : undefined) ??
+      (data as ZernioAnalyticsRow);
+    const a = row?.analytics ?? {};
+    return {
+      kind: "ok",
+      reach: a.reach ?? 0,
+      clicks: a.clicks ?? 0,
+      impressions: a.impressions ?? 0,
+    };
+  } catch (e) {
+    return { kind: "error", message: (e as Error).message };
+  }
+}
+
 function rollupAnalytics(rows: ZernioAnalyticsRow[]): AnalyticsSummary {
   const out: AnalyticsSummary = { ...EMPTY_SUMMARY };
   let engSum = 0;

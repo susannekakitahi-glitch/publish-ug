@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { isAgency, scopePosts, useApp } from "../lib/state";
 
@@ -9,12 +9,23 @@ export default function Schedule() {
     posts: allPosts,
     cancelPost,
     approvePost,
+    syncPostStatuses,
     user,
     currentClientId,
     clients,
   } = useApp();
   const [view, setView] = useState<View>("queue");
   const agency = isAgency(user?.plan);
+
+  // Reconcile local post state with Zernio on mount + when the user flips
+  // between tabs. Cheap in mock mode (zernioEnabled() short-circuits) and
+  // a single round-trip per Zernio-linked post in Real OAuth mode.
+  useEffect(() => {
+    void syncPostStatuses();
+    // syncPostStatuses is memoized on posts/accounts; we intentionally only
+    // run when the user navigates here or flips tabs, not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   const posts = useMemo(
     () => scopePosts(allPosts, user?.plan, currentClientId),
@@ -331,6 +342,19 @@ export default function Schedule() {
                   </div>
                 )}
                 <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
+                {p.failureReason && (
+                  <p
+                    className="small"
+                    style={{ marginTop: 4, color: "var(--warn, #b38500)" }}
+                  >
+                    ⚠ {p.failureReason}
+                  </p>
+                )}
+                {p.zernioPostId && (
+                  <p className="small muted" style={{ marginTop: 4 }}>
+                    Sent via Zernio · id {p.zernioPostId.slice(0, 8)}…
+                  </p>
+                )}
                 <div className="row">
                   <span className="small muted">{p.platforms.join(" · ")}</span>
                   <span className="small">

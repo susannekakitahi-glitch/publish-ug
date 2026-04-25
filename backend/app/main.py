@@ -6,7 +6,9 @@ Keeps the ZERNIO_API_KEY off the browser. Exposes a narrow surface:
   GET  /profiles/{pid}/accounts          list connected social accounts
   GET  /connect/{platform}?profileId=..  return the hosted-OAuth URL
   POST /post                             publish or schedule a post
+  GET  /posts/{id}                       per-post status + platform results
   GET  /analytics?profileId=..           aggregated post analytics
+  GET  /analytics/post/{id}              single-post analytics (addon gated)
   GET  /analytics/follower-stats         follower counts / growth
 
 CORS is open; auth between frontend and backend is deliberately light because
@@ -22,6 +24,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 ZERNIO_BASE = "https://zernio.com/api/v1"
@@ -185,6 +188,44 @@ async def create_post(body: PostIn) -> Any:
 
     async with _client() as c:
         r = await c.post("/posts", json=payload)
+        return await _raise(r)
+
+
+@app.get("/posts/{post_id}")
+async def get_post(post_id: str) -> Any:
+    """Proxy to Zernio's GET /v1/posts/{postId}.
+
+    Returns per-post status (scheduled / published / failed / partial) plus
+    per-platform results including platformPostUrl for published platforms
+    and error messages for failed ones. Free endpoint — does not require
+    the Analytics add-on.
+    """
+    async with _client() as c:
+        r = await c.get(f"/posts/{post_id}")
+        return await _raise(r)
+
+
+@app.get("/analytics/post/{post_id}")
+async def get_post_analytics(post_id: str) -> Any:
+    """Proxy to Zernio's GET /v1/analytics?postId=..., per-post variant.
+
+    Returns reach / impressions / engagement / clicks for a single post.
+    Requires the Analytics add-on ($10/mo) — upstream returns 402 when it
+    is not enabled; we forward that verbatim so the frontend can decide
+    whether to fall back to seeded numbers.
+
+    Zernio also returns 202 while analytics are still syncing for a freshly
+    published post; we forward the 202 so the frontend poller defers
+    instead of treating the empty body as "analytics = 0".
+    """
+    async with _client() as c:
+        r = await c.get("/analytics", params={"postId": post_id})
+        if r.status_code == 202:
+            try:
+                body = r.json()
+            except Exception:
+                body = {"status": "syncing"}
+            return JSONResponse(status_code=202, content=body)
         return await _raise(r)
 
 
