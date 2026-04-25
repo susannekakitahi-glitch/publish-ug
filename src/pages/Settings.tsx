@@ -54,9 +54,9 @@ export default function Settings() {
         <div className="row" style={{ marginTop: 10 }}>
           <span className="small muted">
             {user.postsUsed} used ·{" "}
-            {plan.monthlyPosts === "unlimited"
+            {user.postsQuota === "unlimited"
               ? "unlimited"
-              : `${plan.monthlyPosts} total`}
+              : `${user.postsQuota} total`}
           </span>
           <span className="pill good">active</span>
         </div>
