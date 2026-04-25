@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { isAgency, scopePosts, useApp } from "../lib/state";
 
-type View = "queue" | "calendar" | "sent" | "pending";
+type View = "queue" | "calendar" | "sent" | "pending" | "failed";
 
 export default function Schedule() {
   const {
@@ -40,6 +40,13 @@ export default function Schedule() {
       posts
         .filter((p) => p.status === "pending_approval")
         .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)),
+    [posts]
+  );
+  const failed = useMemo(
+    () =>
+      posts
+        .filter((p) => p.status === "failed")
+        .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
     [posts]
   );
 
@@ -83,6 +90,14 @@ export default function Schedule() {
         >
           Sent ({sent.length})
         </button>
+        {failed.length > 0 && (
+          <button
+            className={`tab ${view === "failed" ? "active" : ""}`}
+            onClick={() => setView("failed")}
+          >
+            Failed ({failed.length})
+          </button>
+        )}
       </div>
 
       {view === "queue" && (
@@ -130,6 +145,19 @@ export default function Schedule() {
                   </div>
                 )}
                 <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
+                {p.failureReason && (
+                  <p
+                    className="small"
+                    style={{ marginTop: 4, color: "var(--warn, #b38500)" }}
+                  >
+                    ⚠ {p.failureReason}
+                  </p>
+                )}
+                {p.zernioPostId && (
+                  <p className="small muted" style={{ marginTop: 4 }}>
+                    Pushed to Zernio · id {p.zernioPostId.slice(0, 8)}…
+                  </p>
+                )}
                 <div className="row" style={{ marginTop: 8 }}>
                   <span className="small muted">{p.platforms.join(" · ")}</span>
                   <button
@@ -137,6 +165,56 @@ export default function Schedule() {
                     onClick={() => cancelPost(p.id)}
                   >
                     Cancel
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {view === "failed" && (
+        <div className="list">
+          {failed.length === 0 && (
+            <p className="muted small">No failed posts.</p>
+          )}
+          {failed.map((p) => {
+            const c = clientOf(p.clientId);
+            return (
+              <div key={p.id} className="card">
+                <div className="row">
+                  <span className="pill" style={{ background: "var(--bad, #b3261e)", color: "white" }}>
+                    failed
+                  </span>
+                  <span className="small muted">
+                    {new Date(p.scheduledAt).toLocaleString()}
+                  </span>
+                </div>
+                {c && (
+                  <div
+                    className="row"
+                    style={{ marginTop: 6, gap: 6, justifyContent: "flex-start" }}
+                  >
+                    <span
+                      className="client-swatch small-swatch"
+                      style={{ background: c.color }}
+                    />
+                    <span className="small muted">{c.name}</span>
+                  </div>
+                )}
+                <p style={{ marginTop: 8 }}>{p.text || "(media post)"}</p>
+                {p.failureReason && (
+                  <p className="small" style={{ marginTop: 4, color: "var(--bad)" }}>
+                    {p.failureReason}
+                  </p>
+                )}
+                <div className="row" style={{ marginTop: 8 }}>
+                  <span className="small muted">{p.platforms.join(" · ")}</span>
+                  <button
+                    className="btn compact danger"
+                    onClick={() => cancelPost(p.id)}
+                  >
+                    Remove
                   </button>
                 </div>
               </div>

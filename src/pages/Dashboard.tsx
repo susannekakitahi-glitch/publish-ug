@@ -1,6 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { isAgency, scopeAccounts, scopePosts, useApp } from "../lib/state";
+import {
+  getAnalyticsForProfile,
+  zernioEnabled,
+  type AnalyticsResult,
+} from "../lib/zernio";
 
 export default function Dashboard() {
   const {
@@ -40,13 +45,67 @@ export default function Dashboard() {
     });
   }, [agency, clients, allPosts, allAccounts]);
 
+  // Which Zernio profile's analytics should this Dashboard pull? Agency users
+  // drill into one client at a time; the "all clients" view keeps the mocked
+  // rollup because Zernio returns per-profile data and we don't want N calls.
+  const activeZernioProfileId = useMemo(() => {
+    if (!user) return undefined;
+    if (agency) {
+      if (currentClientId === null) return undefined;
+      return clients.find((c) => c.id === currentClientId)?.zernioProfileId;
+    }
+    return user.zernioProfileId;
+  }, [user, agency, currentClientId, clients]);
+
+  const oauthMode =
+    typeof window !== "undefined"
+      ? localStorage.getItem("posta-ug:oauth-mode")
+      : null;
+  const canFetchReal =
+    zernioEnabled() && oauthMode === "real" && Boolean(activeZernioProfileId);
+
+  const [analytics, setAnalytics] = useState<AnalyticsResult | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!canFetchReal || !activeZernioProfileId) return;
+    let cancelled = false;
+    // setState inside effect is flagged by react-hooks/set-state-in-effect,
+    // but here it's synchronising with an external system (Zernio) via an
+    // async fetch — the canonical use case. Silence the rule.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAnalytics(null);
+    setAnalyticsLoading(true);
+    getAnalyticsForProfile(activeZernioProfileId)
+      .then((r) => {
+        if (!cancelled) setAnalytics(r);
+      })
+      .finally(() => {
+        if (!cancelled) setAnalyticsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canFetchReal, activeZernioProfileId]);
+
   if (!user) return null;
 
   const sent = posts.filter((p) => p.status === "sent");
   const queuedAll = posts.filter((p) => p.status === "queued");
   const pendingAll = posts.filter((p) => p.status === "pending_approval");
-  const reach = sent.reduce((s, p) => s + (p.reach ?? 0), 0);
-  const clicks = sent.reduce((s, p) => s + (p.clicks ?? 0), 0);
+
+  // Prefer live Zernio KPIs when available; otherwise fall back to the mocked
+  // numbers we've always derived from local `posts` so demo flows still work.
+  // Guard on canFetchReal so a stale fetched value is ignored after the user
+  // toggles back to Mock mode or switches to the agency "all clients" view.
+  const useLive = canFetchReal && analytics?.kind === "ok";
+  const sentCount = useLive ? analytics.summary.posts : sent.length;
+  const reach = useLive
+    ? analytics.summary.reach
+    : sent.reduce((s, p) => s + (p.reach ?? 0), 0);
+  const clicks = useLive
+    ? analytics.summary.clicks
+    : sent.reduce((s, p) => s + (p.clicks ?? 0), 0);
 
   const quota =
     user.postsQuota === "unlimited"
@@ -81,7 +140,7 @@ export default function Dashboard() {
 
       <div className="kpi-grid" style={{ marginTop: 12 }}>
         <div className="kpi">
-          <div className="n">{sent.length}</div>
+          <div className="n">{sentCount}</div>
           <div className="l">Posts sent</div>
         </div>
         <div className="kpi">
@@ -89,10 +148,43 @@ export default function Dashboard() {
           <div className="l">People reached</div>
         </div>
         <div className="kpi">
-          <div className="n">{clicks}</div>
-          <div className="l">Clicks to number</div>
+          <div className="n">{clicks.toLocaleString()}</div>
+          <div className="l">Clicks</div>
         </div>
       </div>
+      {canFetchReal && (
+        <p className="small muted" style={{ marginTop: 6 }}>
+          {analyticsLoading && "Loading live analytics from Zernio…"}
+          {!analyticsLoading && analytics?.kind === "ok" && (
+            <>
+              Live from Zernio · {analytics.summary.likes.toLocaleString()} likes ·{" "}
+              {analytics.summary.comments.toLocaleString()} comments ·{" "}
+              {analytics.summary.shares.toLocaleString()} shares ·{" "}
+              {analytics.summary.engagementRate}% engagement
+            </>
+          )}
+          {!analyticsLoading && analytics?.kind === "empty" && (
+            <>No posts yet on Zernio — publish one to see live numbers.</>
+          )}
+          {!analyticsLoading && analytics?.kind === "addon_required" && (
+            <>
+              Showing demo numbers. {analytics.message}{" "}
+              <a
+                href="https://zernio.com/social-media-analytics"
+                target="_blank"
+                rel="noreferrer"
+                className="link"
+              >
+                Learn more
+              </a>
+              .
+            </>
+          )}
+          {!analyticsLoading && analytics?.kind === "error" && (
+            <>Showing demo numbers · Zernio analytics unavailable ({analytics.message})</>
+          )}
+        </p>
+      )}
 
       <div className="card" style={{ marginTop: 12 }}>
         <div className="row">
