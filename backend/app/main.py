@@ -23,6 +23,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 ZERNIO_BASE = "https://zernio.com/api/v1"
+ALLOWED_PLATFORMS = {
+    "facebook",
+    "instagram",
+    "twitter",
+    "linkedin",
+    "tiktok",
+    "youtube",
+    "whatsapp",
+    "telegram",
+}
 # ZERNIO_API_KEY must come from the runtime environment — typically from a
 # Fly secret (`flyctl secrets set ZERNIO_API_KEY=... -a posta-backend-...`)
 # or from a local .env for development. The previous `_secret.py` fallback
@@ -100,6 +110,8 @@ async def get_connect_url(
     profileId: str = Query(...),
     returnTo: Optional[str] = None,
 ) -> Any:
+    if platform not in ALLOWED_PLATFORMS:
+        raise HTTPException(400, f"Unsupported platform: {platform}")
     async with _client() as c:
         params: dict[str, str] = {"profileId": profileId}
         if returnTo:
