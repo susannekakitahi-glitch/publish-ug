@@ -156,7 +156,7 @@ export default function Onboarding() {
       syncFromZernio();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, location.key]);
+  }, [mode, location.key, currentClientId]);
 
   async function startRealConnect(p: Platform) {
     if (!zernioEnabled()) return;
