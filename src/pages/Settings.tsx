@@ -18,7 +18,7 @@ export default function Settings() {
   const plan = getPlan(user.plan);
 
   const upgradeTargets = PLANS.filter(
-    (p) => !p.hidden && p.id !== user.plan && p.monthlyUgx >= plan.monthlyUgx
+    (p) => !p.hidden && p.id !== user.plan && p.monthlyUgx > plan.monthlyUgx
   );
 
   return (

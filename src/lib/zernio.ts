@@ -2,14 +2,13 @@
  * Posta frontend ↔ Zernio backend proxy.
  *
  * The backend hides the real Zernio API key. If VITE_POSTA_BACKEND is unset
- * (local dev / static preview with no backend) the helpers return null and
- * callers fall back to the mock OAuth flow.
+ * (local dev / static preview with no backend) zernioEnabled() returns false
+ * and the Onboarding UI hides the Real OAuth toggle, falling back entirely
+ * to the mock flow.
  */
 import type { Platform } from "./state";
 
-const BASE =
-  import.meta.env.VITE_POSTA_BACKEND ||
-  "https://posta-backend-ucvedwse.fly.dev";
+const BASE = import.meta.env.VITE_POSTA_BACKEND || "";
 
 const ZERNIO_PLATFORM: Record<Platform, string> = {
   facebook: "facebook",
@@ -26,8 +25,17 @@ export function zernioEnabled(): boolean {
   return Boolean(BASE);
 }
 
+function requireBase(): string {
+  if (!BASE) {
+    throw new Error(
+      "Zernio backend not configured. Set VITE_POSTA_BACKEND at build time."
+    );
+  }
+  return BASE;
+}
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
+  const r = await fetch(`${requireBase()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
