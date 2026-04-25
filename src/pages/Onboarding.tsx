@@ -1,6 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ALL_PLATFORMS, isAgency, scopeAccounts, useApp } from "../lib/state";
+import {
+  ALL_PLATFORMS,
+  isAgency,
+  scopeAccounts,
+  useApp,
+  type Platform,
+} from "../lib/state";
+import { OAuthMock } from "../components/OAuthMock";
 
 export default function Onboarding() {
   const {
@@ -13,6 +20,7 @@ export default function Onboarding() {
     selectClient,
   } = useApp();
   const agency = isAgency(user?.plan);
+  const [oauthFor, setOauthFor] = useState<Platform | null>(null);
 
   const scoped = useMemo(
     () => scopeAccounts(allAccounts, user?.plan, currentClientId),
@@ -117,13 +125,7 @@ export default function Onboarding() {
                       agency ? currentClientId ?? undefined : undefined
                     );
                   } else {
-                    const handle = prompt(`${p.label} handle or page name`);
-                    if (handle)
-                      connectAccount(
-                        p.id,
-                        handle,
-                        agency ? currentClientId ?? undefined : undefined
-                      );
+                    setOauthFor(p.id);
                   }
                 }}
               >
@@ -147,6 +149,21 @@ export default function Onboarding() {
       <Link to="/dashboard" className="btn primary">
         {accounts.length > 0 ? "Go to dashboard" : "Skip for now"}
       </Link>
+
+      {oauthFor && (
+        <OAuthMock
+          platform={oauthFor}
+          onClose={() => setOauthFor(null)}
+          onSuccess={(handle) => {
+            connectAccount(
+              oauthFor,
+              handle,
+              agency ? currentClientId ?? undefined : undefined
+            );
+            setOauthFor(null);
+          }}
+        />
+      )}
     </main>
   );
 }
