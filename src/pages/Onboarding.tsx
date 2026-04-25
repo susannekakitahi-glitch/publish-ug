@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ALL_PLATFORMS,
@@ -66,25 +66,55 @@ export default function Onboarding() {
   const activeClient = clients.find((c) => c.id === currentClientId);
 
   /**
+   * De-dupes concurrent profile lookups. Keyed by tenant scope (user id /
+   * client id) so sync + connect fired in the same tick share one
+   * createProfile() call instead of racing and stranding duplicate profiles
+   * on Zernio.
+   */
+  const inflightProfile = useRef<Map<string, Promise<string | null>>>(
+    new Map()
+  );
+
+  /**
    * Get the Zernio profile ID for the *current tenant scope* (user or
    * client for Agency users), lazily creating it on first use so demo /
    * mock-only users never burn through the Zernio free-tier profile quota.
    */
   async function ensureTenantProfileId(): Promise<string | null> {
     if (!user) return null;
-    if (agency) {
-      if (!activeClient) return null;
-      if (activeClient.zernioProfileId) return activeClient.zernioProfileId;
-      const prof = await createProfile(
-        `${user.name} — ${activeClient.name}`
-      );
-      setClientZernioProfileId(activeClient.id, prof._id);
+
+    const scopeKey = agency
+      ? activeClient
+        ? `client:${activeClient.id}`
+        : null
+      : `user:${user.phone}`;
+    if (!scopeKey) return null;
+
+    const existing = inflightProfile.current.get(scopeKey);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      if (agency) {
+        if (!activeClient) return null;
+        if (activeClient.zernioProfileId) return activeClient.zernioProfileId;
+        const prof = await createProfile(
+          `${user.name} — ${activeClient.name}`
+        );
+        setClientZernioProfileId(activeClient.id, prof._id);
+        return prof._id;
+      }
+      if (user.zernioProfileId) return user.zernioProfileId;
+      const prof = await createProfile(user.name || user.phone);
+      setUserZernioProfileId(prof._id);
       return prof._id;
+    })();
+
+    inflightProfile.current.set(scopeKey, promise);
+    try {
+      return await promise;
+    } finally {
+      inflightProfile.current.delete(scopeKey);
     }
-    if (user.zernioProfileId) return user.zernioProfileId;
-    const prof = await createProfile(user.name || user.phone);
-    setUserZernioProfileId(prof._id);
-    return prof._id;
   }
 
   // Sync real accounts from Zernio on mount / when returning from OAuth.
