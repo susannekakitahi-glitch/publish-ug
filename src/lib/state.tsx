@@ -9,9 +9,11 @@ import {
 } from "react";
 import type { PlanId } from "./pricing";
 import {
+  deletePost,
   getPostAnalytics,
   getPostStatus,
   publishPost,
+  updatePost,
   zernioEnabled,
   ZERNIO_PLATFORM,
   type PublishMediaItem,
@@ -167,7 +169,21 @@ export interface AppState {
   disconnectAccount: (platform: Platform, clientId?: string) => void;
   schedulePost: (p: Omit<ScheduledPost, "id" | "status">) => void;
   approvePost: (id: string) => void;
-  cancelPost: (id: string) => void;
+  /** Cancel a queued / pending / failed post. When the post has a
+   *  zernioPostId, also asks Zernio to drop it from the upstream queue
+   *  before removing it locally. Mock-mode posts simply unlink locally. */
+  cancelPost: (id: string) => Promise<void>;
+  /** Edit a queued post's text and/or scheduled time. When the post has a
+   *  zernioPostId, the same patch is forwarded to Zernio. Returns an
+   *  outcome string the caller can surface in the UI:
+   *  - "ok"            edit applied locally + upstream
+   *  - "ok_local_only" mock-mode post; updated locally
+   *  - "too_late"      Zernio refused — upstream already published
+   *  - "error"         network / 5xx; local state untouched */
+  editPost: (
+    id: string,
+    patch: { text?: string; scheduledAt?: string }
+  ) => Promise<"ok" | "ok_local_only" | "too_late" | "error">;
   /** Mark a post as failed-to-publish with a human-readable reason. */
   markPostFailed: (id: string, reason: string) => void;
   /** Persist the Zernio post _id on a local ScheduledPost. */
@@ -762,8 +778,91 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         const p = posts.find((x) => x.id === id);
         if (p) void maybePublishToZernio(id, p, accounts, setPosts);
       },
-      cancelPost(id) {
+      async cancelPost(id) {
+        const target = posts.find((x) => x.id === id);
+        const zid = target?.zernioPostId;
+        // Optimistically remove from the local list — the user already
+        // tapped Cancel/Remove and we don't want them staring at the row
+        // while Render cold-starts. If Zernio rejects the delete (e.g.
+        // post already published), surface a transient warning but leave
+        // the post removed locally; the next syncPostStatuses() poll on a
+        // surviving zernioPostId would have flipped it to sent anyway.
         setPosts((xs) => xs.filter((x) => x.id !== id));
+        if (zid && zernioEnabled()) {
+          const result = await deletePost(zid);
+          if (result.kind === "error" || result.kind === "too_late") {
+            // Best-effort: log so we have something in dev tools when a
+            // user reports "I cancelled but the post still went out".
+            console.warn(
+              "[posta] Zernio cancel failed",
+              result.kind,
+              "message" in result ? result.message : undefined
+            );
+          }
+        }
+      },
+      async editPost(id, patch) {
+        const target = posts.find((x) => x.id === id);
+        if (!target) return "error";
+
+        const nextText = patch.text ?? target.text;
+        const nextScheduledAt = patch.scheduledAt ?? target.scheduledAt;
+        const zid = target.zernioPostId;
+
+        if (zid && zernioEnabled()) {
+          // Build the upstream patch with only the fields that actually
+          // changed — Zernio rejects edits that aren't allowed (e.g.
+          // scheduledFor in the past) so don't send fields the user
+          // didn't touch.
+          const body: { content?: string; scheduledFor?: string } = {};
+          if (patch.text !== undefined && patch.text !== target.text) {
+            body.content = nextText;
+          }
+          if (
+            patch.scheduledAt !== undefined &&
+            patch.scheduledAt !== target.scheduledAt
+          ) {
+            body.scheduledFor = nextScheduledAt;
+          }
+          // Nothing actually changed — treat as no-op. Use Object.keys
+          // instead of !body.content because clearing the post text to
+          // an empty string is a legitimate edit, not a no-op.
+          if (Object.keys(body).length === 0) return "ok";
+
+          const result = await updatePost(zid, body);
+          if (result.kind === "ok") {
+            setPosts((xs) =>
+              xs.map((x) =>
+                x.id === id
+                  ? { ...x, text: nextText, scheduledAt: nextScheduledAt }
+                  : x
+              )
+            );
+            return "ok";
+          }
+          if (result.kind === "too_late") return "too_late";
+          // not_found upstream means we're out of sync; clear the local
+          // zernioPostId so the user can retry as a fresh publish.
+          if (result.kind === "not_found") {
+            setPosts((xs) =>
+              xs.map((x) =>
+                x.id === id ? { ...x, zernioPostId: undefined } : x
+              )
+            );
+            return "error";
+          }
+          return "error";
+        }
+
+        // Mock mode — just update locally. Caller can show "Saved".
+        setPosts((xs) =>
+          xs.map((x) =>
+            x.id === id
+              ? { ...x, text: nextText, scheduledAt: nextScheduledAt }
+              : x
+          )
+        );
+        return "ok_local_only";
       },
       markPostFailed(id, reason) {
         setPosts((xs) =>
