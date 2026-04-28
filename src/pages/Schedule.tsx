@@ -7,8 +7,14 @@ type View = "queue" | "calendar" | "sent" | "pending" | "failed";
 interface EditDraft {
   postId: string;
   text: string;
-  /** datetime-local value (no Z suffix). */
+  /** datetime-local value (no Z suffix). Minute precision. */
   when: string;
+  /** What the datetime-local input read at open time (matching the
+   *  precision of `when`). If `when` still equals this on save, we
+   *  treat the time as unchanged — a naive comparison against the
+   *  post's scheduledAt would round-trip through minute precision and
+   *  always look changed (shifting upstream by up to ~59 seconds). */
+  originalWhen: string;
 }
 
 function toLocalDatetimeInput(iso: string): string {
@@ -38,10 +44,12 @@ export default function Schedule() {
 
   function openEdit(p: ScheduledPost) {
     setEditError(null);
+    const initialWhen = toLocalDatetimeInput(p.scheduledAt);
     setEditing({
       postId: p.id,
       text: p.text,
-      when: toLocalDatetimeInput(p.scheduledAt),
+      when: initialWhen,
+      originalWhen: initialWhen,
     });
   }
 
@@ -49,9 +57,24 @@ export default function Schedule() {
     if (!editing) return;
     setEditBusy(true);
     setEditError(null);
+
+    // Only forward a scheduledAt patch if the user actually edited the
+    // datetime input — otherwise the datetime-local round-trip drops
+    // seconds and we'd shift the post by up to ~59s upstream every save.
+    let scheduledAt: string | undefined;
+    if (editing.when !== editing.originalWhen) {
+      const parsed = new Date(editing.when);
+      if (Number.isNaN(parsed.getTime())) {
+        setEditBusy(false);
+        setEditError("Please enter a valid date and time.");
+        return;
+      }
+      scheduledAt = parsed.toISOString();
+    }
+
     const result = await editPost(editing.postId, {
       text: editing.text,
-      scheduledAt: new Date(editing.when).toISOString(),
+      scheduledAt,
     });
     setEditBusy(false);
     if (result === "ok" || result === "ok_local_only") {
