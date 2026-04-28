@@ -243,10 +243,20 @@ async def delete_post(post_id: str) -> Any:
     Already-published posts cannot be deleted via this route — Zernio
     has a separate /unpublish endpoint for those, which is intentionally
     out of scope until users ask for it.
+
+    Zernio currently responds 200 + {"message": "Post deleted successfully"}
+    on success, but we don't rely on the body — handle 204 No Content and
+    other empty bodies defensively so a future change in upstream
+    semantics doesn't 500 the proxy.
     """
     async with _client() as c:
         r = await c.delete(f"/posts/{post_id}")
-        return await _raise(r)
+        if r.status_code >= 400:
+            return await _raise(r)
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": True}
 
 
 @app.get("/analytics/post/{post_id}")

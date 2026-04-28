@@ -813,8 +813,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           ) {
             body.scheduledFor = nextScheduledAt;
           }
-          // Nothing actually changed — treat as no-op.
-          if (!body.content && !body.scheduledFor) return "ok";
+          // Nothing actually changed — treat as no-op. Use Object.keys
+          // instead of !body.content because clearing the post text to
+          // an empty string is a legitimate edit, not a no-op.
+          if (Object.keys(body).length === 0) return "ok";
 
           const result = await updatePost(zid, body);
           if (result.kind === "ok") {
