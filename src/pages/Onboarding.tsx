@@ -122,9 +122,36 @@ export default function Onboarding() {
     if (mode !== "real" || !zernioEnabled()) return;
     setRealError(null);
     try {
-      const profileId = await ensureTenantProfileId();
+      let profileId = await ensureTenantProfileId();
       if (!profileId) return;
-      const remote = await listAccounts(profileId);
+      let remote: Awaited<ReturnType<typeof listAccounts>>;
+      try {
+        remote = await listAccounts(profileId);
+      } catch (e) {
+        // The cached zernioProfileId points at a profile that no longer
+        // exists upstream (deleted via the Zernio dashboard, or the
+        // Zernio account was reset). Clear the stale id locally and
+        // mint a fresh one so the user is unblocked instead of
+        // permanently 404-locked.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.startsWith("404") && user) {
+          if (agency && activeClient) {
+            const fresh = await createProfile(
+              `${user.name} — ${activeClient.name}`
+            );
+            setClientZernioProfileId(activeClient.id, fresh._id);
+            profileId = fresh._id;
+          } else {
+            const fresh = await createProfile(user.name || user.phone);
+            setUserZernioProfileId(fresh._id);
+            profileId = fresh._id;
+          }
+          inflightProfile.current.clear();
+          remote = await listAccounts(profileId);
+        } else {
+          throw e;
+        }
+      }
       for (const a of remote) {
         const platMap: Record<string, Platform> = {
           facebook: "facebook",
@@ -161,18 +188,39 @@ export default function Onboarding() {
 
   async function startRealConnect(p: Platform) {
     if (!zernioEnabled()) return;
+    // Open the popup synchronously inside the click handler. iOS Safari
+    // (and some popup-blocker configs on desktop) only allow window.open
+    // when it is called directly from a user gesture — opening it AFTER
+    // an `await` is treated as not-user-initiated and silently blocked.
+    // Strategy: open about:blank now, navigate it once we have the URL.
+    const popup = window.open(
+      "about:blank",
+      "posta-oauth",
+      "width=520,height=720"
+    );
     setRealBusy(p);
     setRealError(null);
     try {
       const profileId = await ensureTenantProfileId();
       if (!profileId) {
         setRealError("Could not resolve a Zernio profile for this tenant.");
+        popup?.close();
         return;
       }
       const url = await getConnectUrl(p, profileId);
-      window.open(url, "posta-oauth", "width=520,height=720");
+      if (popup && !popup.closed) {
+        popup.location.assign(url);
+      } else {
+        // Popup was blocked despite the synchronous open (rare on desktop;
+        // happens when popup blockers are very strict). Fall back to
+        // same-tab navigation so the user still completes OAuth instead of
+        // hitting a dead end. The Zernio consent page redirects back to
+        // the app on success.
+        window.location.assign(url);
+      }
     } catch (e) {
       setRealError(e instanceof Error ? e.message : String(e));
+      popup?.close();
     } finally {
       setRealBusy(null);
     }
