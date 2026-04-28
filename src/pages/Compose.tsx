@@ -47,6 +47,7 @@ export default function Compose() {
     accounts.map((a) => a.platform).slice(0, 3)
   );
   const [when, setWhen] = useState<string>(defaultWhen());
+  const [timing, setTiming] = useState<"now" | "later">("later");
   const [aiThinking, setAiThinking] = useState(false);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [busyMedia, setBusyMedia] = useState(false);
@@ -138,13 +139,18 @@ export default function Compose() {
     if (kind !== "youtube" && kind !== "photo" && kind !== "carousel" && kind !== "video" && !text.trim())
       return alert("Write something");
     if (quotaLeft <= 0) return alert("You've used your posts this month. Top up in Billing.");
+    const now = timing === "now";
     schedulePost({
       text: kind === "youtube" ? `${text}\n${ytUrl}` : text,
       kind,
       platforms,
-      scheduledAt: new Date(when).toISOString(),
+      // For Post now, stamp scheduledAt with the current moment so the
+      // Calendar / Schedule list still sorts correctly. The publishNow
+      // flag is what tells Zernio to fire immediately instead of holding.
+      scheduledAt: now ? new Date().toISOString() : new Date(when).toISOString(),
       media: media.length ? media : undefined,
       clientId: agency ? (currentClientId ?? undefined) : undefined,
+      publishNow: now ? true : undefined,
     });
     nav("/schedule");
   };
@@ -401,23 +407,47 @@ export default function Compose() {
       </div>
 
       <div className="card">
-        <label className="label" htmlFor="when">
-          When to post
-        </label>
-        <input
-          id="when"
-          type="datetime-local"
-          className="input"
-          value={when}
-          onChange={(e) => setWhen(e.target.value)}
-        />
-        <p className="small muted" style={{ marginTop: 6 }}>
-          Africa/Kampala time. We'll retry if the network is down.
-        </p>
+        <span className="label">When to post</span>
+        <div className="tabs" role="tablist" style={{ marginTop: 6 }}>
+          <button
+            className={`tab ${timing === "now" ? "active" : ""}`}
+            onClick={() => setTiming("now")}
+            type="button"
+          >
+            Now
+          </button>
+          <button
+            className={`tab ${timing === "later" ? "active" : ""}`}
+            onClick={() => setTiming("later")}
+            type="button"
+          >
+            Later
+          </button>
+        </div>
+        {timing === "later" ? (
+          <>
+            <input
+              id="when"
+              type="datetime-local"
+              className="input"
+              style={{ marginTop: 8 }}
+              value={when}
+              onChange={(e) => setWhen(e.target.value)}
+            />
+            <p className="small muted" style={{ marginTop: 6 }}>
+              Africa/Kampala time. We'll retry if the network is down.
+            </p>
+          </>
+        ) : (
+          <p className="small muted" style={{ marginTop: 8 }}>
+            Publishes immediately to the selected pages. You can watch the
+            status flip in <strong>Queue → Sent</strong>.
+          </p>
+        )}
       </div>
 
       <button className="btn primary" onClick={submit}>
-        Schedule post
+        {timing === "now" ? "Post now" : "Schedule post"}
       </button>
     </main>
   );
