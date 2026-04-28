@@ -69,6 +69,11 @@ export interface ScheduledPost {
   zernioPostId?: string;
   /** Reason for status==="failed" surfaced to the user in /schedule. */
   failureReason?: string;
+  /** When true, Zernio is asked to publish immediately (publishNow=true,
+   *  scheduledFor omitted) instead of holding the post in its queue.
+   *  scheduledAt still carries the timestamp the user clicked Post now so
+   *  the local Calendar sorts the row correctly. */
+  publishNow?: boolean;
 }
 
 export interface ConnectedAccount {
@@ -491,7 +496,13 @@ async function maybePublishToZernio(
   const result = await publishPost({
     content: p.text,
     platforms: targets,
-    scheduledFor: p.scheduledAt,
+    // publishNow takes precedence over scheduledFor — Zernio rejects sending
+    // both, and "publish immediately" means we should not pass a scheduled
+    // timestamp at all (otherwise Zernio queues it for that exact moment
+    // instead of firing now).
+    ...(p.publishNow
+      ? { publishNow: true }
+      : { scheduledFor: p.scheduledAt }),
     mediaItems: mediaItems.length ? mediaItems : undefined,
   });
 
