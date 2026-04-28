@@ -1,13 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { isAgency, scopePosts, useApp } from "../lib/state";
+import { isAgency, scopePosts, useApp, type ScheduledPost } from "../lib/state";
 
 type View = "queue" | "calendar" | "sent" | "pending" | "failed";
+
+interface EditDraft {
+  postId: string;
+  text: string;
+  /** datetime-local value (no Z suffix). */
+  when: string;
+}
+
+function toLocalDatetimeInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
 
 export default function Schedule() {
   const {
     posts: allPosts,
     cancelPost,
+    editPost,
     approvePost,
     syncPostStatuses,
     user,
@@ -16,6 +32,41 @@ export default function Schedule() {
   } = useApp();
   const [view, setView] = useState<View>("queue");
   const agency = isAgency(user?.plan);
+  const [editing, setEditing] = useState<EditDraft | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  function openEdit(p: ScheduledPost) {
+    setEditError(null);
+    setEditing({
+      postId: p.id,
+      text: p.text,
+      when: toLocalDatetimeInput(p.scheduledAt),
+    });
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setEditBusy(true);
+    setEditError(null);
+    const result = await editPost(editing.postId, {
+      text: editing.text,
+      scheduledAt: new Date(editing.when).toISOString(),
+    });
+    setEditBusy(false);
+    if (result === "ok" || result === "ok_local_only") {
+      setEditing(null);
+      return;
+    }
+    if (result === "too_late") {
+      setEditError(
+        "Zernio already published this post — too late to edit. Refreshing the queue."
+      );
+      void syncPostStatuses();
+      return;
+    }
+    setEditError("Couldn't reach Zernio. Try again in a moment.");
+  }
 
   // Reconcile local post state with Zernio on mount + when the user flips
   // between tabs. Cheap in mock mode (zernioEnabled() short-circuits) and
@@ -171,12 +222,28 @@ export default function Schedule() {
                 )}
                 <div className="row" style={{ marginTop: 8 }}>
                   <span className="small muted">{p.platforms.join(" · ")}</span>
-                  <button
-                    className="btn compact danger"
-                    onClick={() => cancelPost(p.id)}
-                  >
-                    Cancel
-                  </button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      className="btn compact"
+                      onClick={() => openEdit(p)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="btn compact danger"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            "Cancel this post? It will be removed from your queue and Zernio's queue."
+                          )
+                        ) {
+                          void cancelPost(p.id);
+                        }
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -223,7 +290,7 @@ export default function Schedule() {
                   <span className="small muted">{p.platforms.join(" · ")}</span>
                   <button
                     className="btn compact danger"
-                    onClick={() => cancelPost(p.id)}
+                    onClick={() => void cancelPost(p.id)}
                   >
                     Remove
                   </button>
@@ -270,7 +337,7 @@ export default function Schedule() {
                   <div style={{ display: "flex", gap: 6 }}>
                     <button
                       className="btn compact danger"
-                      onClick={() => cancelPost(p.id)}
+                      onClick={() => void cancelPost(p.id)}
                     >
                       Reject
                     </button>
@@ -366,6 +433,94 @@ export default function Schedule() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {editing && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !editBusy && setEditing(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            zIndex: 50,
+            padding: 16,
+          }}
+        >
+          <div
+            className="card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              borderRadius: 16,
+              background: "var(--bg, #0c1410)",
+              padding: 16,
+            }}
+          >
+            <h2 style={{ fontSize: 18, marginBottom: 8 }}>Edit post</h2>
+            <label className="label" htmlFor="edit-text">
+              Text
+            </label>
+            <textarea
+              id="edit-text"
+              className="input"
+              rows={4}
+              value={editing.text}
+              onChange={(e) =>
+                setEditing({ ...editing, text: e.target.value })
+              }
+              style={{ marginTop: 4, marginBottom: 12, width: "100%" }}
+              disabled={editBusy}
+            />
+            <label className="label" htmlFor="edit-when">
+              Scheduled for
+            </label>
+            <input
+              id="edit-when"
+              type="datetime-local"
+              className="input"
+              value={editing.when}
+              onChange={(e) =>
+                setEditing({ ...editing, when: e.target.value })
+              }
+              style={{ marginTop: 4, width: "100%" }}
+              disabled={editBusy}
+            />
+            {editError && (
+              <p
+                className="small"
+                style={{ marginTop: 8, color: "var(--bad, #b3261e)" }}
+              >
+                {editError}
+              </p>
+            )}
+            <div
+              className="row"
+              style={{ marginTop: 16, justifyContent: "flex-end", gap: 8 }}
+            >
+              <button
+                className="btn compact"
+                onClick={() => setEditing(null)}
+                disabled={editBusy}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn compact primary"
+                onClick={() => void saveEdit()}
+                disabled={editBusy}
+              >
+                {editBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

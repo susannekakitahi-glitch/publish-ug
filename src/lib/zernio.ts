@@ -364,6 +364,101 @@ export async function getPostStatus(
   }
 }
 
+export interface UpdatePostRequest {
+  content?: string;
+  scheduledFor?: string;
+}
+
+export type UpdatePostResult =
+  | { kind: "ok"; raw: unknown }
+  | { kind: "not_found" }
+  | { kind: "too_late"; message: string }
+  | { kind: "error"; status: number; message: string };
+
+/** Edit a Zernio-queued post.
+ *
+ * Zernio rejects edits to published / publishing / cancelled posts with a
+ * 4xx; surfaces as `too_late` so callers can flip the local card to sent
+ * (Zernio already won) instead of leaving stale text in place.
+ */
+export async function updatePost(
+  zernioPostId: string,
+  body: UpdatePostRequest
+): Promise<UpdatePostResult> {
+  if (!zernioEnabled()) {
+    return { kind: "error", status: 0, message: "backend not configured" };
+  }
+  try {
+    const r = await fetch(
+      `${requireBase()}/posts/${encodeURIComponent(zernioPostId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+    if (r.status === 404) return { kind: "not_found" };
+    if (r.status === 409 || r.status === 422 || r.status === 400) {
+      return {
+        kind: "too_late",
+        message: await extractErrorMessage(r, "Zernio rejected the edit"),
+      };
+    }
+    if (!r.ok) {
+      return {
+        kind: "error",
+        status: r.status,
+        message: await extractErrorMessage(r, `HTTP ${r.status}`),
+      };
+    }
+    return { kind: "ok", raw: await r.json().catch(() => ({})) };
+  } catch (e) {
+    return { kind: "error", status: 0, message: (e as Error).message };
+  }
+}
+
+export type DeletePostResult =
+  | { kind: "ok" }
+  | { kind: "not_found" }
+  | { kind: "too_late"; message: string }
+  | { kind: "error"; status: number; message: string };
+
+/** Cancel a Zernio-queued post.
+ *
+ * Only valid for draft / scheduled posts. Already-published posts return
+ * a 4xx that surfaces as `too_late` — local card stays at `sent`.
+ */
+export async function deletePost(
+  zernioPostId: string
+): Promise<DeletePostResult> {
+  if (!zernioEnabled()) {
+    return { kind: "error", status: 0, message: "backend not configured" };
+  }
+  try {
+    const r = await fetch(
+      `${requireBase()}/posts/${encodeURIComponent(zernioPostId)}`,
+      { method: "DELETE" }
+    );
+    if (r.status === 404) return { kind: "not_found" };
+    if (r.status === 409 || r.status === 422 || r.status === 400) {
+      return {
+        kind: "too_late",
+        message: await extractErrorMessage(r, "Zernio rejected the cancel"),
+      };
+    }
+    if (!r.ok) {
+      return {
+        kind: "error",
+        status: r.status,
+        message: await extractErrorMessage(r, `HTTP ${r.status}`),
+      };
+    }
+    return { kind: "ok" };
+  } catch (e) {
+    return { kind: "error", status: 0, message: (e as Error).message };
+  }
+}
+
 export type PostAnalyticsResult =
   | { kind: "ok"; reach: number; clicks: number; impressions: number }
   | { kind: "addon_required" }

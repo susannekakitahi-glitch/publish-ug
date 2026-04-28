@@ -1,15 +1,17 @@
 """Posta backend proxy to Zernio (formerly Late.dev).
 
 Keeps the ZERNIO_API_KEY off the browser. Exposes a narrow surface:
-  GET  /health
-  POST /profiles                         create a Zernio profile
-  GET  /profiles/{pid}/accounts          list connected social accounts
-  GET  /connect/{platform}?profileId=..  return the hosted-OAuth URL
-  POST /post                             publish or schedule a post
-  GET  /posts/{id}                       per-post status + platform results
-  GET  /analytics?profileId=..           aggregated post analytics
-  GET  /analytics/post/{id}              single-post analytics (addon gated)
-  GET  /analytics/follower-stats         follower counts / growth
+  GET    /health
+  POST   /profiles                         create a Zernio profile
+  GET    /profiles/{pid}/accounts          list connected social accounts
+  GET    /connect/{platform}?profileId=..  return the hosted-OAuth URL
+  POST   /post                             publish or schedule a post
+  GET    /posts/{id}                       per-post status + platform results
+  PUT    /posts/{id}                       update a draft / scheduled / failed post
+  DELETE /posts/{id}                       cancel a draft / scheduled post
+  GET    /analytics?profileId=..           aggregated post analytics
+  GET    /analytics/post/{id}              single-post analytics (addon gated)
+  GET    /analytics/follower-stats         follower counts / growth
 
 CORS is open; auth between frontend and backend is deliberately light because
 the UG/Africa MVP is still pre-prod. The only sensitive value that must never
@@ -202,6 +204,48 @@ async def get_post(post_id: str) -> Any:
     """
     async with _client() as c:
         r = await c.get(f"/posts/{post_id}")
+        return await _raise(r)
+
+
+class PostUpdate(BaseModel):
+    """Subset of Zernio's PUT /v1/posts/{postId} body that Posta needs.
+
+    Posta only supports text edits and schedule shifts. Per-platform
+    overrides, hashtags, and media swaps are not exposed yet — keep this
+    surface narrow until there's product evidence the user wants them.
+    """
+
+    content: Optional[str] = None
+    scheduledFor: Optional[str] = None  # ISO 8601
+
+
+@app.put("/posts/{post_id}")
+async def update_post(post_id: str, body: PostUpdate) -> Any:
+    """Proxy to Zernio's PUT /v1/posts/{postId}.
+
+    Zernio rejects edits to published / publishing / cancelled posts; the
+    upstream 4xx is forwarded verbatim so the frontend can surface a
+    meaningful "too late to edit" message.
+    """
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(400, "No fields to update")
+    async with _client() as c:
+        r = await c.put(f"/posts/{post_id}", json=payload)
+        return await _raise(r)
+
+
+@app.delete("/posts/{post_id}")
+async def delete_post(post_id: str) -> Any:
+    """Proxy to Zernio's DELETE /v1/posts/{postId}.
+
+    Cancels a draft / scheduled post on Zernio so it never publishes.
+    Already-published posts cannot be deleted via this route — Zernio
+    has a separate /unpublish endpoint for those, which is intentionally
+    out of scope until users ask for it.
+    """
+    async with _client() as c:
+        r = await c.delete(f"/posts/{post_id}")
         return await _raise(r)
 
 
