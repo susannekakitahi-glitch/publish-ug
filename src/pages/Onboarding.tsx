@@ -210,14 +210,16 @@ export default function Onboarding() {
       const url = await getConnectUrl(p, profileId);
       if (popup && !popup.closed) {
         popup.location.assign(url);
-      } else {
-        // Popup was blocked despite the synchronous open (rare on desktop;
-        // happens when popup blockers are very strict). Fall back to
+      } else if (!popup) {
+        // Popup was blocked at open time (popup === null). Rare on desktop,
+        // happens when popup blockers are very strict. Fall back to
         // same-tab navigation so the user still completes OAuth instead of
         // hitting a dead end. The Zernio consent page redirects back to
         // the app on success.
         window.location.assign(url);
       }
+      // If the popup opened but the user closed it before the URL resolved,
+      // treat that as cancellation — do NOT yank the main tab to Facebook.
     } catch (e) {
       setRealError(e instanceof Error ? e.message : String(e));
       popup?.close();
