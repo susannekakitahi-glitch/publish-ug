@@ -186,6 +186,11 @@ export interface AppState {
   disconnectAccount: (platform: Platform, clientId?: string) => void;
   schedulePost: (p: Omit<ScheduledPost, "id" | "status">) => void;
   approvePost: (id: string) => void;
+  /** Push an existing local post to Zernio. Useful for posts that were
+   *  scheduled in Mock mode (no zernioPostId) and now that the user has
+   *  switched to Real OAuth need to be sent upstream. No-op in Mock mode
+   *  or if the post already has a zernioPostId. */
+  pushPostToZernio: (id: string) => void;
   /** Cancel a queued / pending / failed post. When the post has a
    *  zernioPostId, also asks Zernio to drop it from the upstream queue
    *  before removing it locally. Mock-mode posts simply unlink locally. */
@@ -369,39 +374,17 @@ const nextClientColor = (existing: Client[]): string => {
   return free ?? CLIENT_COLORS[existing.length % CLIENT_COLORS.length];
 };
 
-const seedPosts = (): ScheduledPost[] => {
-  const now = Date.now();
-  const hr = 3_600_000;
-  const d = 24 * hr;
-  return [
-    {
-      id: "p1",
-      text: "Fresh stock in store today — come by Ntinda before 6pm.",
-      kind: "photo",
-      platforms: ["facebook", "instagram", "whatsapp"],
-      scheduledAt: new Date(now + 3 * hr).toISOString(),
-      status: "queued",
-    },
-    {
-      id: "p2",
-      text: "Weekend special: buy 2 get 1 free on all beverages.",
-      kind: "carousel",
-      platforms: ["facebook", "instagram"],
-      scheduledAt: new Date(now + 1 * d + 4 * hr).toISOString(),
-      status: "queued",
-    },
-    {
-      id: "p3",
-      text: "Behind the scenes at our morning shoot.",
-      kind: "video",
-      platforms: ["tiktok", "youtube", "instagram"],
-      scheduledAt: new Date(now - 1 * d).toISOString(),
-      status: "sent",
-      reach: 2140,
-      clicks: 57,
-    },
-  ];
-};
+/** Posts whose ids match this set are demo-seed posts that earlier
+ *  versions of Posta auto-populated on first load. They were never
+ *  pushed to Zernio (no `zernioPostId`) so they sit in /schedule
+ *  forever as "overdue queued" rows that can never publish. Drop them
+ *  on load so existing localStorage rows get cleaned up without
+ *  forcing a full v2 → v3 schema bump (which would also wipe real
+ *  user posts). */
+const SEED_POST_IDS = new Set(["p1", "p2", "p3"]);
+
+const dropSeedPosts = (posts: ScheduledPost[]): ScheduledPost[] =>
+  posts.filter((p) => !SEED_POST_IDS.has(p.id));
 
 const quotasFor = (
   plan: PlanId
@@ -671,9 +654,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<User | null>(persisted?.user ?? null);
   const [posts, setPosts] = useState<ScheduledPost[]>(
-    persisted?.posts && persisted.posts.length > 0
-      ? persisted.posts
-      : seedPosts()
+    dropSeedPosts(persisted?.posts ?? [])
   );
   const [accounts, setAccounts] = useState<ConnectedAccount[]>(
     persisted?.accounts ?? []
@@ -724,7 +705,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         // Fresh signup starts from a clean slate: no stale accounts / posts /
         // clients carried over from a previous user on the same device.
         setAccounts([]);
-        setPosts(seedPosts());
+        setPosts([]);
         if (plan === "agency") {
           const starter: Client = {
             id: "c" + rid(),
@@ -806,6 +787,24 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         // array closure — find the post snapshot and retry.
         const p = posts.find((x) => x.id === id);
         if (p) void maybePublishToZernio(id, p, accounts, setPosts);
+      },
+      pushPostToZernio(id) {
+        const p = posts.find((x) => x.id === id);
+        if (!p) return;
+        // Already linked to a Zernio post — nothing to push. The user
+        // should be using Edit instead to mutate it upstream.
+        if (p.zernioPostId) return;
+        // Reset any prior failure stamp so the card UI clears the warning
+        // pill while the retry is in flight; maybePublishToZernio will
+        // re-stamp on its own outcome.
+        setPosts((xs) =>
+          xs.map((x) =>
+            x.id === id
+              ? { ...x, status: "queued", failureReason: undefined }
+              : x
+          )
+        );
+        void maybePublishToZernio(id, p, accounts, setPosts);
       },
       async cancelPost(id) {
         const target = posts.find((x) => x.id === id);
