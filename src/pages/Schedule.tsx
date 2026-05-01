@@ -17,6 +17,14 @@ interface EditDraft {
   originalWhen: string;
 }
 
+/** Local date key (YYYY-MM-DD) for indexing posts by calendar day. The
+ *  user's local timezone (via Date getters) — not UTC — so a post at
+ *  23:30 local doesn't bleed into the next calendar day on the grid. */
+function dayKey(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function toLocalDatetimeInput(iso: string): string {
   const d = new Date(iso);
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -41,6 +49,13 @@ export default function Schedule() {
   const [editing, setEditing] = useState<EditDraft | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [distributeOpen, setDistributeOpen] = useState(false);
+  /** datetime-local-style HH:MM bounds for the distribute modal. */
+  const [distributeStart, setDistributeStart] = useState("09:00");
+  const [distributeEnd, setDistributeEnd] = useState("18:00");
+  const [distributeBusy, setDistributeBusy] = useState(false);
+  const [distributeError, setDistributeError] = useState<string | null>(null);
 
   function openEdit(p: ScheduledPost) {
     setEditError(null);
@@ -136,6 +151,81 @@ export default function Schedule() {
   );
 
   const cal = useMemo(() => buildCalendar(queued), [queued]);
+
+  const postsOnSelectedDay = useMemo(() => {
+    if (!selectedDay) return [];
+    return queued
+      .filter((p) => dayKey(new Date(p.scheduledAt)) === selectedDay)
+      .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+  }, [queued, selectedDay]);
+
+  function openDistribute() {
+    if (postsOnSelectedDay.length < 2) return;
+    setDistributeError(null);
+    setDistributeOpen(true);
+  }
+
+  /** Spread the day's posts evenly between [startTime, endTime] on the
+   *  selected day. Two posts get start + end; three get start + midpoint
+   *  + end; etc. Forwards each new time through editPost so Zernio's
+   *  upstream queue is updated in lock-step with local state. */
+  async function applyDistribute() {
+    if (!selectedDay) return;
+    const dayPosts = postsOnSelectedDay;
+    if (dayPosts.length < 2) return;
+
+    const [startH, startM] = distributeStart.split(":").map((n) => parseInt(n, 10));
+    const [endH, endM] = distributeEnd.split(":").map((n) => parseInt(n, 10));
+    if (
+      Number.isNaN(startH) ||
+      Number.isNaN(startM) ||
+      Number.isNaN(endH) ||
+      Number.isNaN(endM)
+    ) {
+      setDistributeError("Please pick a valid start and end time.");
+      return;
+    }
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+    if (endMinutes <= startMinutes) {
+      setDistributeError("End time must be after start time.");
+      return;
+    }
+
+    const [yy, mm, dd] = selectedDay.split("-").map((n) => parseInt(n, 10));
+    setDistributeBusy(true);
+    setDistributeError(null);
+
+    const stepMinutes =
+      dayPosts.length === 1
+        ? 0
+        : (endMinutes - startMinutes) / (dayPosts.length - 1);
+    let firstError: string | null = null;
+    for (let i = 0; i < dayPosts.length; i++) {
+      const totalMinutes = Math.round(startMinutes + stepMinutes * i);
+      const slot = new Date(yy, mm - 1, dd, 0, 0, 0, 0);
+      slot.setMinutes(totalMinutes);
+      const result = await editPost(dayPosts[i].id, {
+        scheduledAt: slot.toISOString(),
+      });
+      if (result === "error" || result === "too_late") {
+        if (!firstError) {
+          firstError =
+            result === "too_late"
+              ? "One of these posts already published. Refreshed the queue."
+              : "Couldn't reach Zernio for one of the posts. Try again.";
+        }
+        if (result === "too_late") void syncPostStatuses();
+      }
+    }
+
+    setDistributeBusy(false);
+    if (firstError) {
+      setDistributeError(firstError);
+      return;
+    }
+    setDistributeOpen(false);
+  }
 
   const clientOf = (cid?: string) => clients.find((c) => c.id === cid);
 
@@ -379,29 +469,167 @@ export default function Schedule() {
       )}
 
       {view === "calendar" && (
-        <div className="card">
-          <div className="row">
-            <strong>{cal.monthLabel}</strong>
-            <span className="small muted">{queued.length} scheduled</span>
+        <>
+          <div className="card">
+            <div className="row">
+              <strong>{cal.monthLabel}</strong>
+              <span className="small muted">{queued.length} scheduled</span>
+            </div>
+            <div className="calendar" style={{ marginTop: 8 }}>
+              {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                <div key={i} className="dow">
+                  {d}
+                </div>
+              ))}
+              {cal.cells.map((c, i) => {
+                const isSelected = c.key !== "" && selectedDay === c.key;
+                const clickable = c.inMonth;
+                return (
+                  <div
+                    key={i}
+                    role={clickable ? "button" : undefined}
+                    tabIndex={clickable ? 0 : -1}
+                    aria-pressed={isSelected || undefined}
+                    onClick={() => {
+                      if (!clickable) return;
+                      setSelectedDay((prev) => (prev === c.key ? null : c.key));
+                    }}
+                    onKeyDown={(e) => {
+                      if (!clickable) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedDay((prev) => (prev === c.key ? null : c.key));
+                      }
+                    }}
+                    className={`day${c.today ? " today" : ""}`}
+                    style={{
+                      ...(c.inMonth ? {} : { opacity: 0.35 }),
+                      ...(clickable ? { cursor: "pointer" } : {}),
+                      ...(isSelected
+                        ? {
+                            outline: "2px solid var(--accent, #f5d423)",
+                            outlineOffset: -2,
+                          }
+                        : {}),
+                    }}
+                  >
+                    {c.dayNum}
+                    {c.postCount > 0 && (
+                      <span className="dot" title={`${c.postCount} posts`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="calendar" style={{ marginTop: 8 }}>
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={i} className="dow">
-                {d}
+
+          {selectedDay && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="row">
+                <strong>
+                  {new Date(selectedDay + "T00:00:00").toLocaleDateString(
+                    undefined,
+                    {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                    }
+                  )}
+                </strong>
+                <span className="small muted">
+                  {postsOnSelectedDay.length}{" "}
+                  {postsOnSelectedDay.length === 1 ? "post" : "posts"}
+                </span>
               </div>
-            ))}
-            {cal.cells.map((c, i) => (
               <div
-                key={i}
-                className={`day${c.today ? " today" : ""}`}
-                style={c.inMonth ? {} : { opacity: 0.35 }}
+                className="row"
+                style={{ marginTop: 8, justifyContent: "flex-end", gap: 6 }}
               >
-                {c.dayNum}
-                {c.postCount > 0 && <span className="dot" title={`${c.postCount} posts`} />}
+                {postsOnSelectedDay.length >= 2 && (
+                  <button className="btn compact" onClick={openDistribute}>
+                    Distribute times
+                  </button>
+                )}
+                <Link
+                  to={`/compose?date=${encodeURIComponent(selectedDay)}`}
+                  className="btn compact primary"
+                >
+                  + Add post
+                </Link>
               </div>
-            ))}
-          </div>
-        </div>
+              {postsOnSelectedDay.length === 0 && (
+                <p className="muted small" style={{ marginTop: 8 }}>
+                  No posts scheduled for this day yet — tap{" "}
+                  <strong>+ Add post</strong> to schedule one.
+                </p>
+              )}
+              <div className="list" style={{ marginTop: 8 }}>
+                {postsOnSelectedDay.map((p) => {
+                  const c = clientOf(p.clientId);
+                  return (
+                    <div key={p.id} className="card">
+                      <div className="row">
+                        <span className="pill">
+                          {new Date(p.scheduledAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        <span className="small muted">
+                          {p.platforms.join(" · ")}
+                        </span>
+                      </div>
+                      {c && (
+                        <div
+                          className="row"
+                          style={{
+                            marginTop: 6,
+                            gap: 6,
+                            justifyContent: "flex-start",
+                          }}
+                        >
+                          <span
+                            className="client-swatch small-swatch"
+                            style={{ background: c.color }}
+                          />
+                          <span className="small muted">{c.name}</span>
+                        </div>
+                      )}
+                      <p style={{ marginTop: 8 }}>
+                        {p.text || "(media post)"}
+                      </p>
+                      <div
+                        className="row"
+                        style={{ marginTop: 8, justifyContent: "flex-end", gap: 6 }}
+                      >
+                        <button
+                          className="btn compact"
+                          onClick={() => openEdit(p)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="btn compact danger"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                "Cancel this post? It will be removed from your queue and Zernio's queue."
+                              )
+                            ) {
+                              void cancelPost(p.id);
+                            }
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {view === "sent" && (
@@ -546,6 +774,102 @@ export default function Schedule() {
           </div>
         </div>
       )}
+
+      {distributeOpen && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !distributeBusy && setDistributeOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            zIndex: 50,
+            padding: 16,
+          }}
+        >
+          <div
+            className="card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              borderRadius: 16,
+              background: "var(--bg, #0c1410)",
+              padding: 16,
+            }}
+          >
+            <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+              Distribute {postsOnSelectedDay.length} posts
+            </h2>
+            <p className="small muted" style={{ marginBottom: 12 }}>
+              Spread evenly between these times. Posts keep their order;
+              the earliest scheduled goes first.
+            </p>
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label className="label" htmlFor="dist-start">
+                  Start
+                </label>
+                <input
+                  id="dist-start"
+                  type="time"
+                  className="input"
+                  value={distributeStart}
+                  onChange={(e) => setDistributeStart(e.target.value)}
+                  style={{ marginTop: 4, width: "100%" }}
+                  disabled={distributeBusy}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label className="label" htmlFor="dist-end">
+                  End
+                </label>
+                <input
+                  id="dist-end"
+                  type="time"
+                  className="input"
+                  value={distributeEnd}
+                  onChange={(e) => setDistributeEnd(e.target.value)}
+                  style={{ marginTop: 4, width: "100%" }}
+                  disabled={distributeBusy}
+                />
+              </div>
+            </div>
+            {distributeError && (
+              <p
+                className="small"
+                style={{ marginTop: 8, color: "var(--bad, #b3261e)" }}
+              >
+                {distributeError}
+              </p>
+            )}
+            <div
+              className="row"
+              style={{ marginTop: 16, justifyContent: "flex-end", gap: 8 }}
+            >
+              <button
+                className="btn compact"
+                onClick={() => setDistributeOpen(false)}
+                disabled={distributeBusy}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn compact primary"
+                onClick={() => void applyDistribute()}
+                disabled={distributeBusy}
+              >
+                {distributeBusy ? "Updating…" : "Apply"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -555,6 +879,9 @@ interface Cell {
   inMonth: boolean;
   today: boolean;
   postCount: number;
+  /** YYYY-MM-DD key matching dayKey(). Empty string for out-of-month
+   *  filler cells so the click handler can no-op cleanly. */
+  key: string;
 }
 
 function buildCalendar(queued: { scheduledAt: string }[]): {
@@ -585,6 +912,7 @@ function buildCalendar(queued: { scheduledAt: string }[]): {
       inMonth: false,
       today: false,
       postCount: 0,
+      key: "",
     });
   }
   for (let d = 1; d <= daysInMonth; d++) {
@@ -596,6 +924,7 @@ function buildCalendar(queued: { scheduledAt: string }[]): {
         m === now.getMonth() &&
         y === now.getFullYear(),
       postCount: byDay.get(String(d)) ?? 0,
+      key: dayKey(new Date(y, m, d)),
     });
   }
   while (cells.length % 7 !== 0) {
@@ -604,6 +933,7 @@ function buildCalendar(queued: { scheduledAt: string }[]): {
       inMonth: false,
       today: false,
       postCount: 0,
+      key: "",
     });
   }
   const monthLabel = first.toLocaleDateString(undefined, {

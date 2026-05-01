@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ALL_PLATFORMS,
   isAgency,
@@ -32,6 +32,12 @@ export default function Compose() {
     selectClient,
   } = useApp();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Schedule.tsx navigates here as `/compose?date=YYYY-MM-DD` from the
+  // calendar's per-day "+ Add post" button. Pre-fill the schedule input
+  // with that day at 09:00 local and lock the timing toggle to Later
+  // so the user lands directly in the scheduling flow.
+  const prefillDate = searchParams.get("date");
   const agency = isAgency(user?.plan);
   const scopedAccounts = useMemo(
     () => scopeAccounts(allAccounts, user?.plan, currentClientId),
@@ -46,7 +52,9 @@ export default function Compose() {
   const [platforms, setPlatforms] = useState<Platform[]>(
     accounts.map((a) => a.platform).slice(0, 3)
   );
-  const [when, setWhen] = useState<string>(defaultWhen());
+  const [when, setWhen] = useState<string>(() =>
+    prefillDate ? prefillFromDate(prefillDate) : defaultWhen()
+  );
   const [timing, setTiming] = useState<"now" | "later">("later");
   const [aiThinking, setAiThinking] = useState(false);
   const [media, setMedia] = useState<MediaItem[]>([]);
@@ -460,6 +468,24 @@ function defaultWhen(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
     d.getHours()
   )}:${pad(d.getMinutes())}`;
+}
+
+/** Map a YYYY-MM-DD calendar day key to a datetime-local-style string at
+ *  09:00 local time. Falls back to defaultWhen() if the date can't be
+ *  parsed (malformed query param) or is in the past — Zernio rejects
+ *  scheduledFor in the past, so we'd just round-trip into a 4xx. */
+function prefillFromDate(dateKey: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!m) return defaultWhen();
+  const [, y, mo, d] = m;
+  const slot = new Date(Number(y), Number(mo) - 1, Number(d), 9, 0, 0, 0);
+  if (Number.isNaN(slot.getTime()) || slot.getTime() < Date.now()) {
+    return defaultWhen();
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${slot.getFullYear()}-${pad(slot.getMonth() + 1)}-${pad(
+    slot.getDate()
+  )}T${pad(slot.getHours())}:${pad(slot.getMinutes())}`;
 }
 
 function downscaleImage(
