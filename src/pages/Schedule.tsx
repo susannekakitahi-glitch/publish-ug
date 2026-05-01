@@ -541,21 +541,27 @@ export default function Schedule() {
                   {postsOnSelectedDay.length === 1 ? "post" : "posts"}
                 </span>
               </div>
-              {postsOnSelectedDay.length === 0 && (
-                <p className="muted small" style={{ marginTop: 8 }}>
-                  No posts scheduled for this day.
-                </p>
-              )}
-              {postsOnSelectedDay.length >= 2 && (
-                <div className="row" style={{ marginTop: 8 }}>
-                  <span className="small muted">
-                    Spread these {postsOnSelectedDay.length} posts evenly
-                    across the day.
-                  </span>
+              <div
+                className="row"
+                style={{ marginTop: 8, justifyContent: "flex-end", gap: 6 }}
+              >
+                {postsOnSelectedDay.length >= 2 && (
                   <button className="btn compact" onClick={openDistribute}>
                     Distribute times
                   </button>
-                </div>
+                )}
+                <Link
+                  to={`/compose?date=${encodeURIComponent(selectedDay)}`}
+                  className="btn compact primary"
+                >
+                  + Add post
+                </Link>
+              </div>
+              {postsOnSelectedDay.length === 0 && (
+                <p className="muted small" style={{ marginTop: 8 }}>
+                  No posts scheduled for this day yet — tap{" "}
+                  <strong>+ Add post</strong> to schedule one.
+                </p>
               )}
               <div className="list" style={{ marginTop: 8 }}>
                 {postsOnSelectedDay.map((p) => {
