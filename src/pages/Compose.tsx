@@ -9,6 +9,7 @@ import {
   type MediaItem,
 } from "../lib/state";
 import type { ScheduledPost } from "../lib/state";
+import { uploadMediaFile, zernioEnabled } from "../lib/zernio";
 
 type Kind = ScheduledPost["kind"];
 
@@ -101,6 +102,53 @@ export default function Compose() {
     }, 800);
   };
 
+  /** Kick off (or retry) an upload for the media item at `name` (the
+   *  in-app filename). Updates the matching item in state by name —
+   *  index isn't stable because removals shift the array while uploads
+   *  are inflight. Caller must guarantee names are unique within the
+   *  current Compose session, which onPickFiles does by appending a
+   *  timestamp suffix.
+   */
+  const startUpload = async (uniqName: string, file: File | Blob) => {
+    if (!zernioEnabled()) {
+      // Mock mode: leave publicUrl absent. The post will be scheduled
+      // as a local-only mock and never hit the publish path.
+      setMedia((arr) =>
+        arr.map((it) =>
+          it.name === uniqName ? { ...it, uploading: false } : it
+        )
+      );
+      return;
+    }
+    // Wrap blobs (e.g. canvas output for images) in a File so that the
+    // Zernio presign call sees a valid filename + contentType.
+    const asFile =
+      file instanceof File
+        ? file
+        : new File([file], uniqName, {
+            type: (file as Blob).type || "application/octet-stream",
+          });
+    const result = await uploadMediaFile(asFile);
+    setMedia((arr) =>
+      arr.map((it) => {
+        if (it.name !== uniqName) return it;
+        if (result.kind === "ok") {
+          return {
+            ...it,
+            publicUrl: result.publicUrl,
+            uploading: false,
+            uploadError: undefined,
+          };
+        }
+        return { ...it, uploading: false, uploadError: result.message };
+      })
+    );
+  };
+
+  // Hold the original File objects keyed by uniq name so we can re-upload
+  // on retry without forcing the user to re-pick from the picker.
+  const fileBlobs = useRef<Map<string, File | Blob>>(new Map());
+
   const onPickFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setBusyMedia(true);
@@ -108,18 +156,43 @@ export default function Compose() {
       const slots = maxItems - media.length;
       const picked = Array.from(files).slice(0, slots);
       const processed: MediaItem[] = [];
+      const uploads: Array<{ uniqName: string; payload: File | Blob }> = [];
       for (const f of picked) {
+        // Suffix with timestamp + random so two files picked in one batch
+        // with the same OS-side filename don't collide while uploads run.
+        const uniqName = `${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}-${f.name}`;
         if (mediaMode === "image") {
           if (!f.type.startsWith("image/")) continue;
-          const dataUrl = await downscaleImage(f, 960, 0.72);
-          processed.push({ kind: "image", name: f.name, dataUrl, size: dataUrl.length });
+          const { dataUrl, blob } = await downscaleImage(f, 960, 0.72);
+          processed.push({
+            kind: "image",
+            name: uniqName,
+            dataUrl,
+            size: blob.size,
+            uploading: zernioEnabled(),
+          });
+          fileBlobs.current.set(uniqName, blob);
+          uploads.push({ uniqName, payload: blob });
         } else if (mediaMode === "video") {
           if (!f.type.startsWith("video/")) continue;
           const dataUrl = await capturePoster(f);
-          processed.push({ kind: "video", name: f.name, dataUrl, size: f.size });
+          processed.push({
+            kind: "video",
+            name: uniqName,
+            dataUrl,
+            size: f.size,
+            uploading: zernioEnabled(),
+          });
+          fileBlobs.current.set(uniqName, f);
+          uploads.push({ uniqName, payload: f });
         }
       }
       setMedia((m) => [...m, ...processed]);
+      // Fire uploads after the state update so the placeholder rows are
+      // already on screen with their "Uploading…" indicator.
+      for (const u of uploads) startUpload(u.uniqName, u.payload);
     } finally {
       setBusyMedia(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -127,13 +200,34 @@ export default function Compose() {
     }
   };
 
+  const retryUpload = (uniqName: string) => {
+    const blob = fileBlobs.current.get(uniqName);
+    if (!blob) return;
+    setMedia((arr) =>
+      arr.map((it) =>
+        it.name === uniqName
+          ? { ...it, uploading: true, uploadError: undefined }
+          : it
+      )
+    );
+    startUpload(uniqName, blob);
+  };
+
   const removeMedia = (i: number) =>
-    setMedia((m) => m.filter((_, idx) => idx !== i));
+    setMedia((m) => {
+      const item = m[i];
+      if (item) fileBlobs.current.delete(item.name);
+      return m.filter((_, idx) => idx !== i);
+    });
 
   const changeKind = (k: Kind) => {
     setKind(k);
+    fileBlobs.current.clear();
     setMedia([]);
   };
+
+  const anyUploading = media.some((m) => m.uploading);
+  const anyUploadFailed = media.some((m) => m.uploadError);
 
   const submit = () => {
     if (platforms.length === 0) return alert("Pick at least one platform");
@@ -147,6 +241,12 @@ export default function Compose() {
     if (kind !== "youtube" && kind !== "photo" && kind !== "carousel" && kind !== "video" && !text.trim())
       return alert("Write something");
     if (quotaLeft <= 0) return alert("You've used your posts this month. Top up in Billing.");
+    if (anyUploading)
+      return alert("Wait for media uploads to finish before scheduling.");
+    if (anyUploadFailed)
+      return alert(
+        "One or more media uploads failed. Tap Retry on the failed item, or remove it."
+      );
     const now = timing === "now";
     schedulePost({
       text: kind === "youtube" ? `${text}\n${ytUrl}` : text,
@@ -271,6 +371,48 @@ export default function Compose() {
                       <span className="media-video-badge">▶ video</span>
                     </div>
                   )}
+                  {(m.uploading || m.uploadError) && (
+                    <div
+                      className="media-upload-overlay"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 4,
+                        background: m.uploadError
+                          ? "rgba(180,30,30,0.75)"
+                          : "rgba(0,0,0,0.55)",
+                        color: "#fff",
+                        fontSize: 11,
+                        textAlign: "center",
+                        padding: 6,
+                      }}
+                    >
+                      {m.uploading && <span>Uploading…</span>}
+                      {m.uploadError && (
+                        <>
+                          <span>Upload failed</span>
+                          <span style={{ opacity: 0.85, fontSize: 10 }}>
+                            {m.uploadError.slice(0, 60)}
+                          </span>
+                          <button
+                            className="btn compact"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              retryUpload(m.name);
+                            }}
+                            style={{ marginTop: 2 }}
+                          >
+                            Retry
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <button
                     className="media-remove"
                     onClick={() => removeMedia(i)}
@@ -284,6 +426,19 @@ export default function Compose() {
                 </div>
               ))}
             </div>
+          )}
+          {(anyUploading || anyUploadFailed) && (
+            <p
+              className="small"
+              style={{
+                marginTop: 6,
+                color: anyUploadFailed ? "var(--bad)" : "var(--muted)",
+              }}
+            >
+              {anyUploadFailed
+                ? "Some uploads failed — retry or remove the failed items before scheduling."
+                : "Uploading media to Zernio… you can keep editing while this finishes."}
+            </p>
           )}
 
           {media.length < maxItems && (
@@ -454,8 +609,23 @@ export default function Compose() {
         )}
       </div>
 
-      <button className="btn primary" onClick={submit}>
-        {timing === "now" ? "Post now" : "Schedule post"}
+      <button
+        className="btn primary"
+        onClick={submit}
+        disabled={anyUploading}
+        title={
+          anyUploading
+            ? "Wait for media uploads to finish"
+            : anyUploadFailed
+              ? "Retry or remove the failed media before scheduling"
+              : undefined
+        }
+      >
+        {anyUploading
+          ? "Uploading media…"
+          : timing === "now"
+            ? "Post now"
+            : "Schedule post"}
       </button>
     </main>
   );
@@ -488,11 +658,16 @@ function prefillFromDate(dateKey: string): string {
   )}T${pad(slot.getHours())}:${pad(slot.getMinutes())}`;
 }
 
+/** Downscale a user-picked image and return both the data URI (for the
+ *  in-app preview) and the compressed Blob (for upload to Zernio). The
+ *  data URI is identical to the blob's bytes — we encode once on the
+ *  canvas and reuse that output for both consumers.
+ */
 function downscaleImage(
   file: File,
   maxDim: number,
   quality: number
-): Promise<string> {
+): Promise<{ dataUrl: string; blob: Blob }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -507,7 +682,15 @@ function downscaleImage(
       const ctx = c.getContext("2d");
       if (!ctx) return reject(new Error("no canvas"));
       ctx.drawImage(img, 0, 0, w, h);
-      resolve(c.toDataURL("image/jpeg", quality));
+      const dataUrl = c.toDataURL("image/jpeg", quality);
+      c.toBlob(
+        (blob) => {
+          if (!blob) return reject(new Error("canvas toBlob returned null"));
+          resolve({ dataUrl, blob });
+        },
+        "image/jpeg",
+        quality
+      );
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);

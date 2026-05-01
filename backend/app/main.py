@@ -9,6 +9,7 @@ Keeps the ZERNIO_API_KEY off the browser. Exposes a narrow surface:
   GET    /posts/{id}                       per-post status + platform results
   PUT    /posts/{id}                       update a draft / scheduled / failed post
   DELETE /posts/{id}                       cancel a draft / scheduled post
+  POST   /media/presign                    request a presigned upload URL for media
   GET    /analytics?profileId=..           aggregated post analytics
   GET    /analytics/post/{id}              single-post analytics (addon gated)
   GET    /analytics/follower-stats         follower counts / growth
@@ -257,6 +258,60 @@ async def delete_post(post_id: str) -> Any:
             return r.json()
         except Exception:
             return {"ok": True}
+
+
+class MediaPresignIn(BaseModel):
+    """Subset of Zernio's POST /v1/media/presign body.
+
+    Zernio's docs allow filename, contentType and an optional size for
+    pre-validation. We forward all three so the upstream can reject
+    oversize uploads before the client wastes bandwidth on a PUT that
+    would 4xx.
+    """
+
+    filename: str
+    contentType: str
+    size: Optional[int] = None
+
+
+# Zernio's allowed contentType allow-list, taken from
+# https://docs.zernio.com/media/get-media-presigned-url
+# Mirrored here so we reject obvious garbage (e.g. text/plain) before
+# spending an upstream call.
+ALLOWED_MEDIA_TYPES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "video/mp4",
+    "video/mpeg",
+    "video/quicktime",
+    "video/avi",
+    "video/x-msvideo",
+    "video/webm",
+    "video/x-m4v",
+    "application/pdf",
+}
+
+
+@app.post("/media/presign")
+async def media_presign(body: MediaPresignIn) -> Any:
+    """Proxy to Zernio's POST /v1/media/presign.
+
+    Returns {uploadUrl, publicUrl, key, type}. The browser uploads the
+    file directly to uploadUrl with PUT (presigned, so no proxy needed),
+    then references publicUrl in the post's mediaItems[]. Posta keeps no
+    storage of its own — Zernio holds the bytes.
+    """
+    if body.contentType not in ALLOWED_MEDIA_TYPES:
+        raise HTTPException(
+            400, f"Unsupported contentType: {body.contentType}"
+        )
+    payload = body.model_dump(exclude_none=True)
+    async with _client() as c:
+        r = await c.post("/media/presign", json=payload)
+        return await _raise(r)
 
 
 @app.get("/analytics/post/{post_id}")
