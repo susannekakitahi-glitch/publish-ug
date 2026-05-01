@@ -117,6 +117,39 @@ export default function Onboarding() {
     }
   }
 
+  /** True when an Error came from a Zernio 404 "Profile not found".
+   *  The j() helper in zernio.ts throws Error("<status> <body>") so we
+   *  match on the status prefix. The body shape is FastAPI-wrapped
+   *  (`{"detail":{"error":"Profile not found"}}`) but we only need the
+   *  status — the body is logged via setRealError when the self-heal
+   *  itself fails. */
+  function isStaleProfile404(e: unknown): boolean {
+    const msg = e instanceof Error ? e.message : String(e);
+    return msg.startsWith("404");
+  }
+
+  /** Replace the cached Zernio profile id with a freshly-minted one.
+   *  Used by self-heal paths when an upstream call 404s with "Profile
+   *  not found" — usually because the user deleted the profile on
+   *  zernio.com or the Zernio account was reset. Returns the new id, or
+   *  null when the tenant scope can't be resolved (no logged-in user,
+   *  agency without active client). */
+  async function mintFreshProfile(): Promise<string | null> {
+    if (!user) return null;
+    if (agency && !activeClient) return null;
+    const fresh =
+      agency && activeClient
+        ? await createProfile(`${user.name} — ${activeClient.name}`)
+        : await createProfile(user.name || user.phone);
+    if (agency && activeClient) {
+      setClientZernioProfileId(activeClient.id, fresh._id);
+    } else {
+      setUserZernioProfileId(fresh._id);
+    }
+    inflightProfile.current.clear();
+    return fresh._id;
+  }
+
   // Sync real accounts from Zernio on mount / when returning from OAuth.
   async function syncFromZernio() {
     if (mode !== "real" || !zernioEnabled()) return;
@@ -128,25 +161,10 @@ export default function Onboarding() {
       try {
         remote = await listAccounts(profileId);
       } catch (e) {
-        // The cached zernioProfileId points at a profile that no longer
-        // exists upstream (deleted via the Zernio dashboard, or the
-        // Zernio account was reset). Clear the stale id locally and
-        // mint a fresh one so the user is unblocked instead of
-        // permanently 404-locked.
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg.startsWith("404") && user) {
-          if (agency && activeClient) {
-            const fresh = await createProfile(
-              `${user.name} — ${activeClient.name}`
-            );
-            setClientZernioProfileId(activeClient.id, fresh._id);
-            profileId = fresh._id;
-          } else {
-            const fresh = await createProfile(user.name || user.phone);
-            setUserZernioProfileId(fresh._id);
-            profileId = fresh._id;
-          }
-          inflightProfile.current.clear();
+        if (isStaleProfile404(e)) {
+          const fresh = await mintFreshProfile();
+          if (!fresh) throw e;
+          profileId = fresh;
           remote = await listAccounts(profileId);
         } else {
           throw e;
@@ -201,13 +219,31 @@ export default function Onboarding() {
     setRealBusy(p);
     setRealError(null);
     try {
-      const profileId = await ensureTenantProfileId();
+      let profileId = await ensureTenantProfileId();
       if (!profileId) {
         setRealError("Could not resolve a Zernio profile for this tenant.");
         popup?.close();
         return;
       }
-      const url = await getConnectUrl(p, profileId);
+      let url: string;
+      try {
+        url = await getConnectUrl(p, profileId);
+      } catch (e) {
+        // /connect/{platform} 404s with "Profile not found" when the
+        // cached profileId no longer exists upstream (user deleted it
+        // on zernio.com or Zernio reset their data). Self-heal: mint a
+        // fresh profile and retry, mirroring syncFromZernio's recovery
+        // path. Without this the user is permanently locked out of
+        // OAuth and the only way out is clearing Safari's site data.
+        if (isStaleProfile404(e)) {
+          const fresh = await mintFreshProfile();
+          if (!fresh) throw e;
+          profileId = fresh;
+          url = await getConnectUrl(p, profileId);
+        } else {
+          throw e;
+        }
+      }
       if (popup && !popup.closed) {
         popup.location.assign(url);
       } else if (!popup) {
