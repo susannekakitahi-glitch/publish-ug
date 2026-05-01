@@ -6,10 +6,6 @@ Deployment target is **Render** (free tier, no credit card required). The
 blueprint at repo root (`render.yaml`) provisions everything; set
 `ZERNIO_API_KEY` in the Render service's Environment tab.
 
-(An older deployment also exists on Fly.io at `posta-backend-ucvedwse`. The
-`fly.toml` in this folder still works for that target but is no longer the
-primary; new deploys should go to Render.)
-
 ## Local dev
 
 ```bash
@@ -44,21 +40,6 @@ first request after that takes ~30s to cold-start; subsequent requests are
 fast. Good enough for Posta's current volume; if latency starts hurting,
 upgrade to the $7/mo Starter tier or add a cron that pings `/health` every
 10 minutes.
-
-## Deploy to Fly (legacy)
-
-First deploy only (one-time):
-
-```bash
-flyctl secrets set ZERNIO_API_KEY=sk_your_real_key -a posta-backend-ucvedwse
-flyctl deploy -a posta-backend-ucvedwse
-```
-
-Subsequent deploys are just `flyctl deploy`. Rotate the key with another
-`flyctl secrets set` — Fly re-deploys the machines automatically.
-
-**Never** put the key in `fly.toml [env]` — that file is committed to git
-and values in `[env]` are plaintext in releases. Use `flyctl secrets set`.
 
 ## Endpoints
 
