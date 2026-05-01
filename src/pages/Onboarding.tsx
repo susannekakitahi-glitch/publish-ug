@@ -40,6 +40,14 @@ export default function Onboarding() {
   const [realBusy, setRealBusy] = useState<Platform | null>(null);
   const [realError, setRealError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  /** Platform the user is about to connect via Real OAuth, *before* we
+   *  open the OAuth popup. We interrupt the click with a small confirm
+   *  dialog so the user can sign out of the wrong account first —
+   *  Safari auto-uses whichever account is signed in, and there's no
+   *  way for Zernio's URL to force an account picker. */
+  const [confirmConnect, setConfirmConnect] = useState<Platform | null>(
+    null
+  );
 
   useEffect(() => {
     localStorage.setItem("posta-ug:oauth-mode", mode);
@@ -117,6 +125,39 @@ export default function Onboarding() {
     }
   }
 
+  /** True when an Error came from a Zernio 404 "Profile not found".
+   *  The j() helper in zernio.ts throws Error("<status> <body>") so we
+   *  match on the status prefix. The body shape is FastAPI-wrapped
+   *  (`{"detail":{"error":"Profile not found"}}`) but we only need the
+   *  status — the body is logged via setRealError when the self-heal
+   *  itself fails. */
+  function isStaleProfile404(e: unknown): boolean {
+    const msg = e instanceof Error ? e.message : String(e);
+    return msg.startsWith("404");
+  }
+
+  /** Replace the cached Zernio profile id with a freshly-minted one.
+   *  Used by self-heal paths when an upstream call 404s with "Profile
+   *  not found" — usually because the user deleted the profile on
+   *  zernio.com or the Zernio account was reset. Returns the new id, or
+   *  null when the tenant scope can't be resolved (no logged-in user,
+   *  agency without active client). */
+  async function mintFreshProfile(): Promise<string | null> {
+    if (!user) return null;
+    if (agency && !activeClient) return null;
+    const fresh =
+      agency && activeClient
+        ? await createProfile(`${user.name} — ${activeClient.name}`)
+        : await createProfile(user.name || user.phone);
+    if (agency && activeClient) {
+      setClientZernioProfileId(activeClient.id, fresh._id);
+    } else {
+      setUserZernioProfileId(fresh._id);
+    }
+    inflightProfile.current.clear();
+    return fresh._id;
+  }
+
   // Sync real accounts from Zernio on mount / when returning from OAuth.
   async function syncFromZernio() {
     if (mode !== "real" || !zernioEnabled()) return;
@@ -128,25 +169,10 @@ export default function Onboarding() {
       try {
         remote = await listAccounts(profileId);
       } catch (e) {
-        // The cached zernioProfileId points at a profile that no longer
-        // exists upstream (deleted via the Zernio dashboard, or the
-        // Zernio account was reset). Clear the stale id locally and
-        // mint a fresh one so the user is unblocked instead of
-        // permanently 404-locked.
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg.startsWith("404") && user) {
-          if (agency && activeClient) {
-            const fresh = await createProfile(
-              `${user.name} — ${activeClient.name}`
-            );
-            setClientZernioProfileId(activeClient.id, fresh._id);
-            profileId = fresh._id;
-          } else {
-            const fresh = await createProfile(user.name || user.phone);
-            setUserZernioProfileId(fresh._id);
-            profileId = fresh._id;
-          }
-          inflightProfile.current.clear();
+        if (isStaleProfile404(e)) {
+          const fresh = await mintFreshProfile();
+          if (!fresh) throw e;
+          profileId = fresh;
           remote = await listAccounts(profileId);
         } else {
           throw e;
@@ -201,13 +227,31 @@ export default function Onboarding() {
     setRealBusy(p);
     setRealError(null);
     try {
-      const profileId = await ensureTenantProfileId();
+      let profileId = await ensureTenantProfileId();
       if (!profileId) {
         setRealError("Could not resolve a Zernio profile for this tenant.");
         popup?.close();
         return;
       }
-      const url = await getConnectUrl(p, profileId);
+      let url: string;
+      try {
+        url = await getConnectUrl(p, profileId);
+      } catch (e) {
+        // /connect/{platform} 404s with "Profile not found" when the
+        // cached profileId no longer exists upstream (user deleted it
+        // on zernio.com or Zernio reset their data). Self-heal: mint a
+        // fresh profile and retry, mirroring syncFromZernio's recovery
+        // path. Without this the user is permanently locked out of
+        // OAuth and the only way out is clearing Safari's site data.
+        if (isStaleProfile404(e)) {
+          const fresh = await mintFreshProfile();
+          if (!fresh) throw e;
+          profileId = fresh;
+          url = await getConnectUrl(p, profileId);
+        } else {
+          throw e;
+        }
+      }
       if (popup && !popup.closed) {
         popup.location.assign(url);
       } else if (!popup) {
@@ -358,7 +402,12 @@ export default function Onboarding() {
                       agency ? currentClientId ?? undefined : undefined
                     );
                   } else if (mode === "real") {
-                    startRealConnect(p.id);
+                    // Interrupt the OAuth flow with an account-picker
+                    // confirmation. The popup itself is opened from
+                    // startRealConnect inside the dialog's Continue
+                    // button click, which is still a user gesture so
+                    // iOS Safari won't block it.
+                    setConfirmConnect(p.id);
                   } else {
                     setOauthFor(p.id);
                   }
@@ -399,6 +448,101 @@ export default function Onboarding() {
           }}
         />
       )}
+
+      {confirmConnect && (
+        <ConnectAccountPicker
+          platform={confirmConnect}
+          onCancel={() => setConfirmConnect(null)}
+          onContinue={() => {
+            const p = confirmConnect;
+            setConfirmConnect(null);
+            startRealConnect(p);
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+/** Per-platform sign-out URLs. Tapping the link opens the platform's
+ *  logout page in a new tab so the user can switch which account
+ *  Safari is signed into before continuing. We can't deep-link an
+ *  account picker on Facebook/Instagram — their OAuth flow always
+ *  uses the cookie that's currently set in the browser. */
+const SIGN_OUT_URLS: Partial<Record<Platform, string>> = {
+  facebook: "https://www.facebook.com/logout.php",
+  instagram: "https://www.instagram.com/accounts/logout/",
+  youtube: "https://accounts.google.com/Logout",
+  x: "https://twitter.com/logout",
+  linkedin: "https://www.linkedin.com/m/logout/",
+  tiktok: "https://www.tiktok.com/logout",
+};
+
+const PLATFORM_LABEL: Record<Platform, string> = {
+  facebook: "Facebook",
+  instagram: "Instagram",
+  x: "X",
+  linkedin: "LinkedIn",
+  tiktok: "TikTok",
+  youtube: "YouTube / Google",
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+};
+
+function ConnectAccountPicker({
+  platform,
+  onContinue,
+  onCancel,
+}: {
+  platform: Platform;
+  onContinue: () => void;
+  onCancel: () => void;
+}) {
+  const label = PLATFORM_LABEL[platform];
+  const signOutUrl = SIGN_OUT_URLS[platform];
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div className="modal" role="dialog" aria-modal="true">
+        <h3 style={{ margin: 0 }}>Connect {label}</h3>
+        <p className="small muted" style={{ marginTop: 8 }}>
+          Posta will connect with the {label} account currently signed
+          into Safari. If that's the wrong one (e.g. a personal account
+          with no Pages), sign out first, then come back and tap
+          {` ${label}`} again.
+        </p>
+        <div className="col" style={{ gap: 8, marginTop: 12 }}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={onContinue}
+          >
+            Continue with current {label} account
+          </button>
+          {signOutUrl && (
+            <a
+              className="btn ghost"
+              href={signOutUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              style={{ textAlign: "center" }}
+            >
+              Sign out of {label} first
+            </a>
+          )}
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
