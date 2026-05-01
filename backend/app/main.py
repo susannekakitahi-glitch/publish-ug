@@ -41,11 +41,11 @@ ALLOWED_PLATFORMS = {
     "whatsapp",
     "telegram",
 }
-# ZERNIO_API_KEY must come from the runtime environment — typically from a
-# Fly secret (`flyctl secrets set ZERNIO_API_KEY=... -a posta-backend-...`)
-# or from a local .env for development. The previous `_secret.py` fallback
-# was removed intentionally so a missing secret fails loudly instead of
-# silently reading a committed key.
+# ZERNIO_API_KEY must come from the runtime environment — typically from
+# the Render service's Environment tab in production, or a local .env for
+# development. The previous `_secret.py` fallback was removed intentionally
+# so a missing secret fails loudly instead of silently reading a committed
+# key.
 API_KEY = os.environ.get("ZERNIO_API_KEY") or os.environ.get("LATE_API_KEY")
 
 app = FastAPI(title="Posta proxy", version="0.1.0")
