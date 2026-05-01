@@ -369,39 +369,17 @@ const nextClientColor = (existing: Client[]): string => {
   return free ?? CLIENT_COLORS[existing.length % CLIENT_COLORS.length];
 };
 
-const seedPosts = (): ScheduledPost[] => {
-  const now = Date.now();
-  const hr = 3_600_000;
-  const d = 24 * hr;
-  return [
-    {
-      id: "p1",
-      text: "Fresh stock in store today — come by Ntinda before 6pm.",
-      kind: "photo",
-      platforms: ["facebook", "instagram", "whatsapp"],
-      scheduledAt: new Date(now + 3 * hr).toISOString(),
-      status: "queued",
-    },
-    {
-      id: "p2",
-      text: "Weekend special: buy 2 get 1 free on all beverages.",
-      kind: "carousel",
-      platforms: ["facebook", "instagram"],
-      scheduledAt: new Date(now + 1 * d + 4 * hr).toISOString(),
-      status: "queued",
-    },
-    {
-      id: "p3",
-      text: "Behind the scenes at our morning shoot.",
-      kind: "video",
-      platforms: ["tiktok", "youtube", "instagram"],
-      scheduledAt: new Date(now - 1 * d).toISOString(),
-      status: "sent",
-      reach: 2140,
-      clicks: 57,
-    },
-  ];
-};
+/** Posts whose ids match this set are demo-seed posts that earlier
+ *  versions of Posta auto-populated on first load. They were never
+ *  pushed to Zernio (no `zernioPostId`) so they sit in /schedule
+ *  forever as "overdue queued" rows that can never publish. Drop them
+ *  on load so existing localStorage rows get cleaned up without
+ *  forcing a full v2 → v3 schema bump (which would also wipe real
+ *  user posts). */
+const SEED_POST_IDS = new Set(["p1", "p2", "p3"]);
+
+const dropSeedPosts = (posts: ScheduledPost[]): ScheduledPost[] =>
+  posts.filter((p) => !SEED_POST_IDS.has(p.id));
 
 const quotasFor = (
   plan: PlanId
@@ -671,9 +649,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<User | null>(persisted?.user ?? null);
   const [posts, setPosts] = useState<ScheduledPost[]>(
-    persisted?.posts && persisted.posts.length > 0
-      ? persisted.posts
-      : seedPosts()
+    dropSeedPosts(persisted?.posts ?? [])
   );
   const [accounts, setAccounts] = useState<ConnectedAccount[]>(
     persisted?.accounts ?? []
@@ -724,7 +700,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         // Fresh signup starts from a clean slate: no stale accounts / posts /
         // clients carried over from a previous user on the same device.
         setAccounts([]);
-        setPosts(seedPosts());
+        setPosts([]);
         if (plan === "agency") {
           const starter: Client = {
             id: "c" + rid(),
