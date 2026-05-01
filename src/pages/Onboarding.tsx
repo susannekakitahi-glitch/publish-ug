@@ -40,6 +40,14 @@ export default function Onboarding() {
   const [realBusy, setRealBusy] = useState<Platform | null>(null);
   const [realError, setRealError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  /** Platform the user is about to connect via Real OAuth, *before* we
+   *  open the OAuth popup. We interrupt the click with a small confirm
+   *  dialog so the user can sign out of the wrong account first —
+   *  Safari auto-uses whichever account is signed in, and there's no
+   *  way for Zernio's URL to force an account picker. */
+  const [confirmConnect, setConfirmConnect] = useState<Platform | null>(
+    null
+  );
 
   useEffect(() => {
     localStorage.setItem("posta-ug:oauth-mode", mode);
@@ -394,7 +402,12 @@ export default function Onboarding() {
                       agency ? currentClientId ?? undefined : undefined
                     );
                   } else if (mode === "real") {
-                    startRealConnect(p.id);
+                    // Interrupt the OAuth flow with an account-picker
+                    // confirmation. The popup itself is opened from
+                    // startRealConnect inside the dialog's Continue
+                    // button click, which is still a user gesture so
+                    // iOS Safari won't block it.
+                    setConfirmConnect(p.id);
                   } else {
                     setOauthFor(p.id);
                   }
@@ -435,6 +448,101 @@ export default function Onboarding() {
           }}
         />
       )}
+
+      {confirmConnect && (
+        <ConnectAccountPicker
+          platform={confirmConnect}
+          onCancel={() => setConfirmConnect(null)}
+          onContinue={() => {
+            const p = confirmConnect;
+            setConfirmConnect(null);
+            startRealConnect(p);
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+/** Per-platform sign-out URLs. Tapping the link opens the platform's
+ *  logout page in a new tab so the user can switch which account
+ *  Safari is signed into before continuing. We can't deep-link an
+ *  account picker on Facebook/Instagram — their OAuth flow always
+ *  uses the cookie that's currently set in the browser. */
+const SIGN_OUT_URLS: Partial<Record<Platform, string>> = {
+  facebook: "https://www.facebook.com/logout.php",
+  instagram: "https://www.instagram.com/accounts/logout/",
+  youtube: "https://accounts.google.com/Logout",
+  x: "https://twitter.com/logout",
+  linkedin: "https://www.linkedin.com/m/logout/",
+  tiktok: "https://www.tiktok.com/logout",
+};
+
+const PLATFORM_LABEL: Record<Platform, string> = {
+  facebook: "Facebook",
+  instagram: "Instagram",
+  x: "X",
+  linkedin: "LinkedIn",
+  tiktok: "TikTok",
+  youtube: "YouTube / Google",
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+};
+
+function ConnectAccountPicker({
+  platform,
+  onContinue,
+  onCancel,
+}: {
+  platform: Platform;
+  onContinue: () => void;
+  onCancel: () => void;
+}) {
+  const label = PLATFORM_LABEL[platform];
+  const signOutUrl = SIGN_OUT_URLS[platform];
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div className="modal" role="dialog" aria-modal="true">
+        <h3 style={{ margin: 0 }}>Connect {label}</h3>
+        <p className="small muted" style={{ marginTop: 8 }}>
+          Posta will connect with the {label} account currently signed
+          into Safari. If that's the wrong one (e.g. a personal account
+          with no Pages), sign out first, then come back and tap
+          {` ${label}`} again.
+        </p>
+        <div className="col" style={{ gap: 8, marginTop: 12 }}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={onContinue}
+          >
+            Continue with current {label} account
+          </button>
+          {signOutUrl && (
+            <a
+              className="btn ghost"
+              href={signOutUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              style={{ textAlign: "center" }}
+            >
+              Sign out of {label} first
+            </a>
+          )}
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
