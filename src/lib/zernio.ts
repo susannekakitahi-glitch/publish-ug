@@ -459,6 +459,99 @@ export async function deletePost(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Media upload (Zernio's own presigned-URL flow — no R2/S3 needed)
+// ---------------------------------------------------------------------------
+
+export interface PresignResponse {
+  uploadUrl: string;
+  publicUrl: string;
+  key: string;
+  type: "image" | "video" | string;
+}
+
+export type PresignResult =
+  | { kind: "ok"; data: PresignResponse }
+  | { kind: "error"; status: number; message: string };
+
+/** Request a presigned upload URL from Zernio (via our /media/presign proxy).
+ *
+ *  Caller PUTs the file directly to data.uploadUrl, then references
+ *  data.publicUrl in the post's mediaItems[]. We never see the bytes
+ *  server-side — the proxy only handles the key/url metadata exchange.
+ */
+export async function presignMedia(
+  filename: string,
+  contentType: string,
+  size?: number
+): Promise<PresignResult> {
+  if (!zernioEnabled()) {
+    return { kind: "error", status: 0, message: "backend not configured" };
+  }
+  try {
+    const r = await fetch(`${requireBase()}/media/presign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, contentType, size }),
+    });
+    if (!r.ok) {
+      return {
+        kind: "error",
+        status: r.status,
+        message: await extractErrorMessage(r, `HTTP ${r.status}`),
+      };
+    }
+    return { kind: "ok", data: (await r.json()) as PresignResponse };
+  } catch (e) {
+    return { kind: "error", status: 0, message: (e as Error).message };
+  }
+}
+
+export type UploadResult =
+  | { kind: "ok"; publicUrl: string; type: "image" | "video" }
+  | { kind: "error"; message: string };
+
+/** Composite helper: presign → PUT the file to Zernio's storage.
+ *
+ *  Returns the publicUrl on success so the caller can stash it on the
+ *  ScheduledPost.media[] item. The PUT to uploadUrl bypasses our proxy
+ *  entirely (it's a presigned S3-style URL straight to Zernio's bucket),
+ *  which is why we read uploadUrl out of the presign response and use
+ *  the global fetch — no Authorization header is allowed.
+ *
+ *  contentType MUST match what was passed to presignMedia(); the
+ *  presigned URL's signature is bound to it. We forward file.type
+ *  unconditionally so the two stay in lock-step.
+ */
+export async function uploadMediaFile(file: File): Promise<UploadResult> {
+  const contentType = file.type;
+  const presigned = await presignMedia(file.name, contentType, file.size);
+  if (presigned.kind === "error") {
+    return { kind: "error", message: presigned.message };
+  }
+  const { uploadUrl, publicUrl, type } = presigned.data;
+  try {
+    const r = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: file,
+    });
+    if (!r.ok) {
+      return {
+        kind: "error",
+        message: `Upload failed: ${r.status} ${r.statusText}`,
+      };
+    }
+  } catch (e) {
+    return { kind: "error", message: (e as Error).message };
+  }
+  // Zernio's presign response says `type: "image" | "video"` (mapped from
+  // the contentType prefix). Anything else is unexpected — narrow it.
+  const narrowed: "image" | "video" =
+    type === "video" ? "video" : "image";
+  return { kind: "ok", publicUrl, type: narrowed };
+}
+
 export type PostAnalyticsResult =
   | { kind: "ok"; reach: number; clicks: number; impressions: number }
   | { kind: "addon_required" }

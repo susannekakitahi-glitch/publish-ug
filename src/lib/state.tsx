@@ -45,8 +45,25 @@ export const ALL_PLATFORMS: { id: Platform; label: string; ico: string }[] = [
 export interface MediaItem {
   kind: "image" | "video";
   name: string;
+  /** Local preview as a data: URI. For images this is the downscaled jpeg
+   *  used both for the in-app preview and (until upload finishes) as the
+   *  source-of-truth bytes. For videos this is the captured poster frame
+   *  — the actual playable bytes are uploaded separately and referenced
+   *  via publicUrl below. */
   dataUrl: string;
   size: number;
+  /** Public URL once uploaded to Zernio's storage via /v1/media/presign.
+   *  Required to actually publish the file to a social platform — Zernio
+   *  fetches the URL when it sends the post upstream. Absent while the
+   *  upload is in flight or if it failed. */
+  publicUrl?: string;
+  /** Truthy while the file is being uploaded to Zernio. Compose blocks
+   *  scheduling while any item is uploading so we never schedule a post
+   *  that references a media item Zernio cannot fetch. */
+  uploading?: boolean;
+  /** Set if the upload failed (network, 4xx from Zernio, etc.). The user
+   *  is offered a retry; scheduling stays blocked while this is set. */
+  uploadError?: string;
 }
 
 export type PostStatus =
@@ -499,12 +516,24 @@ async function maybePublishToZernio(
   const mediaItems: PublishMediaItem[] = [];
   let skippedLocalMedia = 0;
   for (const m of p.media ?? []) {
-    if (/^https?:\/\//i.test(m.dataUrl)) {
+    if (m.publicUrl && /^https?:\/\//i.test(m.publicUrl)) {
+      mediaItems.push({
+        type: m.kind,
+        url: m.publicUrl,
+      });
+    } else if (/^https?:\/\//i.test(m.dataUrl)) {
+      // Legacy posts (pre-upload feature) stored the public URL in
+      // dataUrl. Continue to honour that so old localStorage rows still
+      // publish correctly.
       mediaItems.push({
         type: m.kind,
         url: m.dataUrl,
       });
     } else {
+      // Compose blocks scheduling while uploads are in-flight or failed,
+      // so this branch should be unreachable for fresh posts. Keep the
+      // skip + warn behavior as a defensive backstop in case a stale
+      // localStorage row from before the upload feature is replayed.
       skippedLocalMedia += 1;
     }
   }
