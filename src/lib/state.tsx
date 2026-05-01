@@ -186,6 +186,11 @@ export interface AppState {
   disconnectAccount: (platform: Platform, clientId?: string) => void;
   schedulePost: (p: Omit<ScheduledPost, "id" | "status">) => void;
   approvePost: (id: string) => void;
+  /** Push an existing local post to Zernio. Useful for posts that were
+   *  scheduled in Mock mode (no zernioPostId) and now that the user has
+   *  switched to Real OAuth need to be sent upstream. No-op in Mock mode
+   *  or if the post already has a zernioPostId. */
+  pushPostToZernio: (id: string) => void;
   /** Cancel a queued / pending / failed post. When the post has a
    *  zernioPostId, also asks Zernio to drop it from the upstream queue
    *  before removing it locally. Mock-mode posts simply unlink locally. */
@@ -782,6 +787,24 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         // array closure — find the post snapshot and retry.
         const p = posts.find((x) => x.id === id);
         if (p) void maybePublishToZernio(id, p, accounts, setPosts);
+      },
+      pushPostToZernio(id) {
+        const p = posts.find((x) => x.id === id);
+        if (!p) return;
+        // Already linked to a Zernio post — nothing to push. The user
+        // should be using Edit instead to mutate it upstream.
+        if (p.zernioPostId) return;
+        // Reset any prior failure stamp so the card UI clears the warning
+        // pill while the retry is in flight; maybePublishToZernio will
+        // re-stamp on its own outcome.
+        setPosts((xs) =>
+          xs.map((x) =>
+            x.id === id
+              ? { ...x, status: "queued", failureReason: undefined }
+              : x
+          )
+        );
+        void maybePublishToZernio(id, p, accounts, setPosts);
       },
       async cancelPost(id) {
         const target = posts.find((x) => x.id === id);

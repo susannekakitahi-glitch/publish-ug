@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { isAgency, scopePosts, useApp, type ScheduledPost } from "../lib/state";
+import { zernioEnabled } from "../lib/zernio";
 
 type View = "queue" | "calendar" | "sent" | "pending" | "failed";
 
@@ -39,6 +40,7 @@ export default function Schedule() {
     cancelPost,
     editPost,
     approvePost,
+    pushPostToZernio,
     syncPostStatuses,
     user,
     currentClientId,
@@ -46,6 +48,15 @@ export default function Schedule() {
   } = useApp();
   const [view, setView] = useState<View>("queue");
   const agency = isAgency(user?.plan);
+  // Whether the user is on Real OAuth (vs Mock). Only relevant for the
+  // "Push to Zernio" affordance below — we hide it in Mock mode where
+  // there's no upstream to push to. Read on render rather than via
+  // state so a mode flip on /onboarding takes effect after one tab
+  // switch (cheap; no listener needed).
+  const realOAuth =
+    zernioEnabled() &&
+    typeof window !== "undefined" &&
+    localStorage.getItem("posta-ug:oauth-mode") === "real";
   const [editing, setEditing] = useState<EditDraft | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -333,9 +344,22 @@ export default function Schedule() {
                     Pushed to Zernio · id {p.zernioPostId.slice(0, 8)}…
                   </p>
                 )}
+                {!p.zernioPostId && realOAuth && (
+                  <p className="small" style={{ marginTop: 4, color: "var(--warn, #b38500)" }}>
+                    Not pushed to Zernio yet — won't publish upstream until you tap Push.
+                  </p>
+                )}
                 <div className="row" style={{ marginTop: 8 }}>
                   <span className="small muted">{p.platforms.join(" · ")}</span>
                   <div style={{ display: "flex", gap: 6 }}>
+                    {!p.zernioPostId && realOAuth && (
+                      <button
+                        className="btn compact primary"
+                        onClick={() => pushPostToZernio(p.id)}
+                      >
+                        Push to Zernio
+                      </button>
+                    )}
                     <button
                       className="btn compact"
                       onClick={() => openEdit(p)}
