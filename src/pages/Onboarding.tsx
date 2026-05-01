@@ -316,16 +316,55 @@ export default function Onboarding() {
               : "Mock mode fakes a connection for demo purposes. Switch to Real OAuth when you want to connect live accounts."}
           </p>
           {mode === "real" && (
-            <div className="small muted" style={{ marginTop: 4 }}>
-              {lastSync && <span>Synced at {lastSync} · </span>}
-              <button
-                className="linklike"
-                onClick={syncFromZernio}
-                type="button"
+            <>
+              <div className="small muted" style={{ marginTop: 4 }}>
+                {lastSync && <span>Synced at {lastSync} · </span>}
+                <button
+                  className="linklike"
+                  onClick={syncFromZernio}
+                  type="button"
+                >
+                  Re-sync now
+                </button>
+              </div>
+              <div
+                className="small muted"
+                style={{ marginTop: 8, lineHeight: 1.4 }}
               >
-                Re-sync now
-              </button>
-            </div>
+                <strong style={{ display: "block", marginBottom: 2 }}>
+                  Wrong account?
+                </strong>
+                Real OAuth uses whichever account is currently signed in to
+                this browser. To connect a different one, sign out on the
+                platform first.
+                <div style={{ marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <a
+                    href="https://www.facebook.com/logout.php"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="linklike"
+                  >
+                    Sign out of Facebook
+                  </a>
+                  <a
+                    href="https://www.instagram.com/accounts/logout/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="linklike"
+                  >
+                    Sign out of Instagram
+                  </a>
+                  <a
+                    href="https://accounts.google.com/Logout"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="linklike"
+                  >
+                    Sign out of Google (YouTube)
+                  </a>
+                </div>
+              </div>
+            </>
           )}
           {realError && (
             <p className="small" style={{ color: "var(--bad)", marginTop: 6 }}>
