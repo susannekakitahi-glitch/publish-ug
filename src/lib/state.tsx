@@ -741,9 +741,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           accountsQuota: q.accounts,
         });
         // Fresh signup starts from a clean slate: no stale accounts / posts /
-        // clients carried over from a previous user on the same device.
+        // clients / templates carried over from a previous user on the same
+        // device. Important on shared devices (common in Uganda) where the
+        // previous user's caption templates would otherwise leak through.
         setAccounts([]);
         setPosts([]);
+        setTemplates([]);
         if (plan === "agency") {
           const starter: Client = {
             id: "c" + rid(),
