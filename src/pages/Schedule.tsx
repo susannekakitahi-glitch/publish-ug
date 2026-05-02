@@ -244,9 +244,14 @@ export default function Schedule() {
     <main className="page">
       <div className="row">
         <h1 style={{ fontSize: 22 }}>Queue</h1>
-        <Link to="/compose" className="btn compact primary">
-          + New
-        </Link>
+        <div style={{ display: "flex", gap: 6 }}>
+          <Link to="/bulk" className="btn compact">
+            Bulk add
+          </Link>
+          <Link to="/compose" className="btn compact primary">
+            + New
+          </Link>
+        </div>
       </div>
 
       <div className="tabs" role="tablist">

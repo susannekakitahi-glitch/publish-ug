@@ -4,6 +4,7 @@ import Pricing from "./pages/Pricing";
 import Signup from "./pages/Signup";
 import Login from "./pages/Login";
 import Compose from "./pages/Compose";
+import BulkAdd from "./pages/BulkAdd";
 import Schedule from "./pages/Schedule";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
@@ -28,6 +29,7 @@ export default function App() {
 
   const appRoutes = [
     "/compose",
+    "/bulk",
     "/schedule",
     "/dashboard",
     "/settings",
@@ -39,9 +41,14 @@ export default function App() {
   const showBrandSwitcher =
     inApp &&
     isAgency(user?.plan) &&
-    ["/dashboard", "/compose", "/schedule", "/clients", "/onboarding"].some(
-      (r) => loc.pathname.startsWith(r)
-    );
+    [
+      "/dashboard",
+      "/compose",
+      "/bulk",
+      "/schedule",
+      "/clients",
+      "/onboarding",
+    ].some((r) => loc.pathname.startsWith(r));
 
   return (
     <div className="app">
@@ -66,6 +73,14 @@ export default function App() {
           element={
             <Protected>
               <Compose />
+            </Protected>
+          }
+        />
+        <Route
+          path="/bulk"
+          element={
+            <Protected>
+              <BulkAdd />
             </Protected>
           }
         />
