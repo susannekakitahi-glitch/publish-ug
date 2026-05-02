@@ -266,6 +266,17 @@ p {
   font-size: 18px;
   margin-bottom: 4px;
 }
+.platforms .plat .plat-handle {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 
 .nav {
   position: fixed;

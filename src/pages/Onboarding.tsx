@@ -62,6 +62,13 @@ export default function Onboarding() {
     agency && currentClientId === null ? allAccounts : scoped;
 
   const connected = new Set(accounts.map((a) => a.platform));
+  // Map of platform -> the connected account's handle so the tile can
+  // show "Facebook · BBQ Kings" instead of just "Facebook". connectAccount
+  // upserts on (platform, clientId) so there is at most one entry per
+  // platform within the current scope.
+  const handleByPlatform = new Map(
+    accounts.map((a) => [a.platform, a.handle] as const)
+  );
   const cap =
     user?.accountsQuota === "unlimited"
       ? Infinity
@@ -415,6 +422,11 @@ export default function Onboarding() {
               >
                 <span className="ico">{p.ico}</span>
                 {busy ? "…" : p.label}
+                {isConn && handleByPlatform.get(p.id) && (
+                  <span className="plat-handle" title={handleByPlatform.get(p.id)}>
+                    {handleByPlatform.get(p.id)}
+                  </span>
+                )}
               </button>
             );
           })}

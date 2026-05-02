@@ -269,6 +269,13 @@ export default function Compose() {
     );
 
   const connectedSet = new Set(accounts.map((a) => a.platform));
+  // Map of platform -> connected handle so the platform tile can show
+  // "Facebook · BBQ Kings" instead of just "Facebook". connectAccount
+  // upserts on (platform, clientId) so there is at most one entry per
+  // platform within the current scope.
+  const handleByPlatform = new Map(
+    accounts.map((a) => [a.platform, a.handle] as const)
+  );
 
   if (needsFirstClient) {
     return (
@@ -551,10 +558,21 @@ export default function Compose() {
                 className={`plat ${active ? "active" : ""}`}
                 onClick={() => togglePlatform(p.id)}
                 disabled={!connected}
-                title={connected ? p.label : "Connect in onboarding first"}
+                title={
+                  connected
+                    ? handleByPlatform.get(p.id)
+                      ? `${p.label} · ${handleByPlatform.get(p.id)}`
+                      : p.label
+                    : "Connect in onboarding first"
+                }
               >
                 <span className="ico">{p.ico}</span>
                 {p.label}
+                {connected && handleByPlatform.get(p.id) && (
+                  <span className="plat-handle" title={handleByPlatform.get(p.id)}>
+                    {handleByPlatform.get(p.id)}
+                  </span>
+                )}
               </button>
             );
           })}
