@@ -130,11 +130,13 @@ export default function BulkAdd() {
   function addTime() {
     setTimes((prev) => {
       // Suggest a slot 3 hours after the latest one, capped at 21:00.
-      const last = prev[prev.length - 1] ?? "09:00";
+      // `||` (not `??`) so an empty/cleared trailing input falls back
+      // to the 09:00 baseline instead of "" → NaN → "NaN:00".
+      const last = prev[prev.length - 1] || "09:00";
       const [h, m] = last.split(":").map(Number);
-      const next = Math.min(21, (h ?? 9) + 3);
+      const next = Math.min(21, (Number.isFinite(h) ? h : 9) + 3);
       const candidate = `${String(next).padStart(2, "0")}:${String(
-        m ?? 0
+        Number.isFinite(m) ? m : 0
       ).padStart(2, "0")}`;
       // De-dup so adding twice doesn't create duplicate slots.
       return prev.includes(candidate) ? prev : [...prev, candidate].sort();
