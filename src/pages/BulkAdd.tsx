@@ -67,21 +67,29 @@ export default function BulkAdd() {
   // Plan how many captions actually get scheduled given quota + the bulk cap.
   const willSchedule = Math.min(captions.length, quotaLeft, MAX_BULK);
 
+  // A cleared <input type="time"> reads as "". Drop those before
+  // feeding computeSlots so we don't silently schedule everything at
+  // 00:00 — the validator below surfaces an error instead.
+  const validTimes = useMemo(
+    () => times.filter((t) => /^\d{2}:\d{2}$/.test(t)),
+    [times]
+  );
+
   const slots = useMemo(
     () =>
       computeSlots({
         count: willSchedule,
         startDate,
-        times,
+        times: validTimes,
         skipDays,
       }),
-    [willSchedule, startDate, times, skipDays]
+    [willSchedule, startDate, validTimes, skipDays]
   );
 
   const platformError =
     platforms.length === 0 ? "Pick at least one platform." : null;
   const timesError =
-    times.length === 0 ? "Add at least one posting time." : null;
+    validTimes.length === 0 ? "Add at least one valid posting time." : null;
   const captionError =
     captions.length === 0
       ? "Paste at least one caption above."
