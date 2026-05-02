@@ -54,7 +54,18 @@ export default function BulkAdd() {
   const [explicitPlatforms, setExplicitPlatforms] = useState<
     Platform[] | null
   >(null);
-  const platforms = explicitPlatforms ?? connectedPlatforms;
+  // Filter the explicit selection against the currently connected list
+  // so that switching clients (which changes connectedPlatforms) drops
+  // stale platforms from the previous client. If everything filters
+  // out, platforms.length === 0 and platformError surfaces a "Pick at
+  // least one platform" error before the user can submit.
+  const platforms = useMemo(
+    () =>
+      explicitPlatforms
+        ? explicitPlatforms.filter((p) => connectedPlatforms.includes(p))
+        : connectedPlatforms,
+    [explicitPlatforms, connectedPlatforms]
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const captions = useMemo(() => parseCaptions(raw), [raw]);
