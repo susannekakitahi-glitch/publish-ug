@@ -96,6 +96,9 @@ export default function BulkAdd() {
     platformError ||
     timesError ||
     slotError ||
+    (willSchedule === 0 && captions.length > 0
+      ? "You've used your posts this period. Top up in Settings."
+      : null) ||
     (needsClientPick ? "Pick a client from the brand switcher above." : null) ||
     (needsFirstClient ? "Add at least one client before bulk-scheduling." : null);
 
