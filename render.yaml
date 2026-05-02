@@ -1,26 +1,220 @@
-# Render blueprint for the Posta FastAPI backend.
+# Render blueprint for Posta:
+#   - posta-backend  (FastAPI proxy, free tier)
+#   - postiz         (self-hosted social aggregator replacing Zernio)
+#   - postiz-temporal (workflow engine Postiz uses for scheduling)
+#   - postiz-postgres / postiz-temporal-db (managed Postgres)
+#   - postiz-redis    (managed Key Value)
 #
-# Once this file is on main, sign in at render.com (GitHub login, no card),
-# click New + -> Blueprint, pick this repo, and Render will provision the
-# service below automatically. Then paste ZERNIO_API_KEY into the service's
-# Environment tab (it's marked sync: false so Render prompts for it instead
-# of reading it from this file).
+# How to apply:
+#   1. Sign in at render.com (existing account that hosts posta-backend).
+#   2. New + -> Blueprint -> pick this repo -> branch with this file.
+#   3. Render reads this YAML and proposes the new services. Click Apply.
+#   4. For each `sync: false` env var, Render prompts for a value in the
+#      dashboard. See `postiz/README.md` for the full secret checklist
+#      (Meta app id/secret, Cloudflare R2, etc.).
+#   5. Wait for first deploy (~10 min). Open the postiz URL, register the
+#      admin user, get the API key from User -> Settings -> Public API.
+#   6. Tell Devin the postiz URL + API key (via `secrets request`). Devin
+#      then rewrites Posta's backend + zernio.ts to talk to Postiz.
+#
+# Cost (monthly):
+#   posta-backend ............ free
+#   postiz (web, starter) .... $ 7
+#   postiz-temporal (pserv) .. $ 7
+#   postiz-postgres .......... $ 7
+#   postiz-temporal-db ....... $ 7
+#   postiz-redis (free) ...... $ 0
+#   ----------------------------------
+#   Total .................... ~$28/mo
+#
+# Why not free Oracle Cloud: card declined for UG-issued cards. Move to
+# Oracle once a virtual card (Chipper / Eversend / bank-issued) works.
 
 services:
+  # ============================================================
+  # Existing Posta FastAPI proxy. Unchanged from before.
+  # Will be retired once Postiz migration is complete.
+  # ============================================================
   - type: web
     name: posta-backend
     runtime: python
     plan: free
     region: oregon
     rootDir: backend
-    # Free tier spins down after ~15 min idle; first request after cold
-    # start takes ~30s. healthCheckPath keeps the dashboard honest about
-    # the actual app state.
     healthCheckPath: /health
     buildCommand: pip install .
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ZERNIO_API_KEY
-        sync: false  # user sets this in the Render dashboard; never in git
+        sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"
+
+  # ============================================================
+  # Postiz: the new aggregator. Single Docker image runs the
+  # frontend (port 4200), backend API (3000), and orchestrator
+  # worker behind nginx on port 5000. Render auto-detects 5000.
+  # ============================================================
+  - type: web
+    name: posta-postiz
+    runtime: image
+    plan: starter
+    region: oregon
+    image:
+      url: ghcr.io/gitroomhq/postiz-app:latest
+    healthCheckPath: /
+    envVars:
+      # --- Required Postiz settings ---
+      - key: MAIN_URL
+        sync: false       # set to https://posta-postiz.onrender.com after first deploy
+      - key: FRONTEND_URL
+        sync: false       # same as MAIN_URL
+      - key: NEXT_PUBLIC_BACKEND_URL
+        sync: false       # MAIN_URL + "/api"
+      - key: BACKEND_INTERNAL_URL
+        value: http://localhost:3000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: IS_GENERAL
+        value: "true"
+      - key: DISABLE_REGISTRATION
+        value: "false"    # flip to true after admin user is created
+      - key: RUN_CRON
+        value: "true"
+      - key: API_LIMIT
+        value: "100"
+      - key: NX_ADD_PLUGINS
+        value: "false"
+      - key: STORAGE_PROVIDER
+        value: local      # switch to "cloudflare" after R2 setup (README step 5)
+
+      # --- Database wired to managed Postgres ---
+      - key: DATABASE_URL
+        fromDatabase:
+          name: postiz-postgres
+          property: connectionString
+
+      # --- Redis (Key Value) ---
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: postiz-redis
+          property: connectionString
+
+      # --- Temporal (private service) ---
+      - key: TEMPORAL_ADDRESS
+        fromService:
+          type: pserv
+          name: posta-postiz-temporal
+          property: hostport
+
+      # --- Meta / social provider OAuth credentials.
+      # Empty until the Meta app is registered (see postiz/README.md).
+      - key: FACEBOOK_APP_ID
+        sync: false
+      - key: FACEBOOK_APP_SECRET
+        sync: false
+      - key: X_API_KEY
+        sync: false
+      - key: X_API_SECRET
+        sync: false
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: YOUTUBE_CLIENT_ID
+        sync: false
+      - key: YOUTUBE_CLIENT_SECRET
+        sync: false
+      - key: TIKTOK_CLIENT_ID
+        sync: false
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: THREADS_APP_ID
+        sync: false
+      - key: THREADS_APP_SECRET
+        sync: false
+
+      # --- Cloudflare R2 (recommended for media; cheaper than Render disk).
+      # Leave unset until you provision an R2 bucket; STORAGE_PROVIDER stays
+      # "local" until then. See postiz/README.md step 5.
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_ACCESS_KEY
+        sync: false
+      - key: CLOUDFLARE_SECRET_ACCESS_KEY
+        sync: false
+      - key: CLOUDFLARE_BUCKETNAME
+        sync: false
+      - key: CLOUDFLARE_BUCKET_URL
+        sync: false
+      - key: CLOUDFLARE_REGION
+        value: auto
+
+  # ============================================================
+  # Temporal server (private, only Postiz reaches it). Auto-setup
+  # image initialises Postgres schemas on first boot. We disable
+  # Elasticsearch (no advanced visibility) to save the ES service.
+  # ============================================================
+  - type: pserv
+    name: posta-postiz-temporal
+    runtime: image
+    plan: starter
+    region: oregon
+    image:
+      url: temporalio/auto-setup:1.27
+    envVars:
+      - key: DB
+        value: postgres12
+      - key: DB_PORT
+        value: "5432"
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: postiz-temporal-db
+          property: user
+      - key: POSTGRES_PWD
+        fromDatabase:
+          name: postiz-temporal-db
+          property: password
+      - key: POSTGRES_SEEDS
+        fromDatabase:
+          name: postiz-temporal-db
+          property: host
+      - key: ENABLE_ES
+        value: "false"
+      - key: DEFAULT_NAMESPACE
+        value: default
+      - key: DEFAULT_NAMESPACE_RETENTION
+        value: "1"
+      - key: SKIP_DEFAULT_NAMESPACE_CREATION
+        value: "false"
+      - key: SKIP_SCHEMA_SETUP
+        value: "false"
+
+  # ============================================================
+  # Postiz Redis (Render Key Value). Free tier: 25 MB. Enough
+  # for Postiz's queue traffic at low scale; bump to starter
+  # ($10/mo, 250 MB) if memory pressure shows up.
+  # ============================================================
+  - type: keyvalue
+    name: postiz-redis
+    region: oregon
+    plan: free
+    ipAllowList: []          # Render-private only
+    maxmemoryPolicy: noeviction
+
+# ============================================================
+# Managed Postgres databases.
+# ============================================================
+databases:
+  - name: postiz-postgres
+    databaseName: postiz
+    plan: basic-256mb
+    region: oregon
+    ipAllowList: []          # Render-private only
+
+  - name: postiz-temporal-db
+    databaseName: temporal
+    plan: basic-256mb
+    region: oregon
+    ipAllowList: []
