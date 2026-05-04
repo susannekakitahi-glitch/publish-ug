@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
+import { PlatformChip } from "../components/PlatformLogos";
 
 /** Landing page.
  *
@@ -11,6 +13,17 @@ import { Link } from "react-router-dom";
  *  opts into a wider, fully-responsive layout scoped to this page.
  */
 export default function Landing() {
+  // Paint the landing-specific dark neutral theme while the route is
+  // mounted. The rest of the app (dashboard, compose, etc.) keeps the
+  // forest-green palette, so we only swap the canvas (and chrome like
+  // the sticky topbar) when the user is on the marketing surface.
+  useEffect(() => {
+    document.body.classList.add("landing-theme");
+    return () => {
+      document.body.classList.remove("landing-theme");
+    };
+  }, []);
+
   return (
     <main className="landing">
       <section className="landing-hero">
@@ -44,20 +57,20 @@ export default function Landing() {
           </div>
         </div>
 
-        <div className="landing-platform-cloud" aria-hidden>
-          {[
-            { k: "FB", name: "Facebook" },
-            { k: "IG", name: "Instagram" },
-            { k: "X", name: "X" },
-            { k: "IN", name: "LinkedIn" },
-            { k: "TT", name: "TikTok" },
-            { k: "YT", name: "YouTube" },
-            { k: "WA", name: "WhatsApp" },
-            { k: "TG", name: "Telegram" },
-          ].map((p) => (
-            <div key={p.k} className="landing-plat-chip" title={p.name}>
-              {p.k}
-            </div>
+        <div className="landing-platform-cloud">
+          {(
+            [
+              ["facebook", "Facebook"],
+              ["instagram", "Instagram"],
+              ["x", "X"],
+              ["linkedin", "LinkedIn"],
+              ["tiktok", "TikTok"],
+              ["youtube", "YouTube"],
+              ["whatsapp", "WhatsApp"],
+              ["telegram", "Telegram"],
+            ] as const
+          ).map(([id, name]) => (
+            <PlatformChip key={id} platform={id} title={name} />
           ))}
         </div>
       </section>

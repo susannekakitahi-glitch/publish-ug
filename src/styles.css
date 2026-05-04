@@ -1567,3 +1567,81 @@ p {
   .landing-section { padding: 40px 0 8px; }
   .landing-cta-section { padding: 32px 16px; }
 }
+
+/* =========================================================================
+ * Landing dark-neutral theme.
+ * Applied only when `body.landing-theme` is set (by the Landing route on
+ * mount). Shifts the canvas from forest green to near-black and dresses
+ * the scoped `.landing-*` surfaces in neutral greys so the accent
+ * (amber + small greens) reads as pop instead of a green-on-green wash.
+ * ========================================================================= */
+
+body.landing-theme {
+  background: #0a0a0c;
+}
+
+body.landing-theme .topbar {
+  background: rgba(10, 10, 12, 0.9);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+body.landing-theme .landing-compare-col,
+body.landing-theme .landing-pillar,
+body.landing-theme .landing-persona,
+body.landing-theme .landing-feature {
+  background: #121217;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+body.landing-theme .landing-pillar-ico {
+  background: #1b1b22;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+body.landing-theme .landing-cta-section {
+  background:
+    radial-gradient(520px 260px at 50% 0%, rgba(245, 200, 66, 0.14), transparent 70%),
+    #121217;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+body.landing-theme .landing-hero-bg {
+  background:
+    radial-gradient(900px 440px at 15% 0%, rgba(245, 200, 66, 0.18), transparent 65%),
+    radial-gradient(700px 380px at 85% 30%, rgba(38, 165, 228, 0.1), transparent 70%);
+}
+
+body.landing-theme .landing-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Platform chips: each carries its own brand colour. Logo is painted in
+ * white via currentColor. */
+.landing-plat-chip svg { color: #fff; }
+.landing-plat-facebook  { background: #1877F2; border-color: #1877F2; color: #fff; }
+.landing-plat-instagram {
+  background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+  border-color: transparent;
+  color: #fff;
+}
+.landing-plat-x         { background: #000; border-color: rgba(255,255,255,0.16); color: #fff; }
+.landing-plat-linkedin  { background: #0A66C2; border-color: #0A66C2; color: #fff; }
+.landing-plat-tiktok    { background: #000; border-color: rgba(255,255,255,0.16); color: #fff; }
+.landing-plat-youtube   { background: #FF0000; border-color: #FF0000; color: #fff; }
+.landing-plat-whatsapp  { background: #25D366; border-color: #25D366; color: #fff; }
+.landing-plat-telegram  { background: #26A5E4; border-color: #26A5E4; color: #fff; }
+
+/* Hover: keep each chip's brand colour (override the default rule that
+ * sets background to var(--panel-2) on hover) and let transform +
+ * brightness do the pop. */
+.landing-plat-facebook:hover  { background: #1877F2; }
+.landing-plat-instagram:hover {
+  background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+}
+.landing-plat-x:hover         { background: #000; }
+.landing-plat-linkedin:hover  { background: #0A66C2; }
+.landing-plat-tiktok:hover    { background: #000; }
+.landing-plat-youtube:hover   { background: #FF0000; }
+.landing-plat-whatsapp:hover  { background: #25D366; }
+.landing-plat-telegram:hover  { background: #26A5E4; }
+.landing-plat-chip:hover { filter: brightness(1.12); }
