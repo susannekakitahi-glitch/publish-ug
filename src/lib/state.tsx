@@ -93,6 +93,11 @@ export interface ScheduledPost {
    *  scheduledAt still carries the timestamp the user clicked Post now so
    *  the local Calendar sorts the row correctly. */
   publishNow?: boolean;
+  /** Back-reference to a RecurringRule when this post is one materialized
+   *  occurrence of a repeating series. Used by the Recurring Posts UI to
+   *  show "this is the 3rd of 12 in 'Friday promo'" and to cancel the
+   *  rest of the series when the rule is paused / deleted. */
+  recurringRuleId?: string;
 }
 
 export interface ConnectedAccount {
@@ -161,6 +166,64 @@ export interface PostTemplate {
   updatedAt: string;
 }
 
+/**
+ * A repeating-post rule. Captures "post this caption every Friday at
+ * 9 AM for 12 weeks". The rule itself is just metadata — each concrete
+ * occurrence is still a regular ScheduledPost with a recurringRuleId
+ * back-reference, so the existing Queue / Calendar / Zernio-sync /
+ * approval flows keep working unchanged.
+ *
+ * Materialization model: **upfront**. When the rule is created we
+ * generate every occurrence in one go (up to the `endBy` cap), each
+ * as its own ScheduledPost. This gives users immediate visibility in
+ * the calendar + queue, and keeps publish logic uniform with
+ * non-recurring posts. Downsides are bounded by the end condition
+ * (max 52 weekly / 365 daily / 24 monthly occurrences) so we never
+ * flood localStorage.
+ *
+ * Scoping: recurring rules are per-client in agency mode (carry the
+ * same clientId as their materialized occurrences) so the
+ * Agency "switch client" UX hides unrelated brands' series.
+ */
+export interface RecurringRule {
+  id: string;
+  /** Human-friendly label shown in the Settings list. Falls back to
+   *  the first few words of the caption when unset. */
+  name: string;
+  /** Agency: which client brand the series belongs to. Undefined for
+   *  solo / business / org plans. */
+  clientId?: string;
+  text: string;
+  kind: ScheduledPost["kind"];
+  platforms: Platform[];
+  /** Media carried through to every occurrence. For photo / carousel
+   *  / video kinds the same dataUrl/publicUrl is reused; the user can
+   *  still edit a specific occurrence's media via the normal Edit
+   *  flow in /schedule. */
+  media?: MediaItem[];
+  /** Cadence expressed as a discriminated union so the UI can render
+   *  the right controls and occurrence generation can pattern-match
+   *  on `cadence.type`. */
+  cadence:
+    | { type: "daily" }
+    | { type: "weekly"; weekdays: number[] } // 0=Sunday .. 6=Saturday
+    | { type: "monthly"; dayOfMonth: number }; // 1..28 (cap at 28 to dodge Feb edge cases)
+  /** Local time of day the occurrence fires, HH:MM (24h). Applied in
+   *  the user's local timezone (Africa/Kampala for Uganda). */
+  timeOfDay: string;
+  /** First occurrence's date (YYYY-MM-DD, local). Occurrences before
+   *  this are skipped even if the cadence pattern would match. */
+  startDate: string;
+  /** End condition. "count" caps total occurrences; "date" caps the
+   *  last scheduled-for date. */
+  endBy: { type: "count"; count: number } | { type: "date"; date: string };
+  /** When true, future occurrences are cancelled and no new ones are
+   *  materialized. Past occurrences stay in the queue/sent list. */
+  paused: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface User {
   name: string;
   phone: string;
@@ -185,6 +248,7 @@ export interface AppState {
   clients: Client[];
   currentClientId: string | null;
   templates: PostTemplate[];
+  recurringRules: RecurringRule[];
   signup: (
     name: string,
     phone: string,
@@ -258,6 +322,33 @@ export interface AppState {
   ) => void;
   /** Delete a template. No-op if id is unknown. */
   removeTemplate: (id: string) => void;
+  /** Create a recurring-post series. Materializes all occurrences
+   *  upfront (each as a normal ScheduledPost) and returns the new
+   *  rule along with how many occurrences were actually scheduled
+   *  after applying the endBy cap + skipping times in the past. */
+  addRecurringRule: (rule: {
+    name?: string;
+    clientId?: string;
+    text: string;
+    kind: ScheduledPost["kind"];
+    platforms: Platform[];
+    media?: MediaItem[];
+    cadence: RecurringRule["cadence"];
+    timeOfDay: string;
+    startDate: string;
+    endBy: RecurringRule["endBy"];
+  }) => { rule: RecurringRule; scheduled: number };
+  /** Pause a rule: cancel its future queued occurrences (past ones
+   *  stay), flip paused=true. No-op if already paused. */
+  pauseRecurringRule: (id: string) => Promise<void>;
+  /** Resume a paused rule: re-materialize forward occurrences from
+   *  max(startDate, today) up to endBy, skipping occurrences that
+   *  already exist. Flips paused=false. */
+  resumeRecurringRule: (id: string) => void;
+  /** Delete a rule + cancel all its future queued occurrences. Past
+   *  sent/queued-in-the-past occurrences keep their recurringRuleId
+   *  stamp so history stays intact. */
+  removeRecurringRule: (id: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -445,6 +536,7 @@ interface Persisted {
   clients: Client[];
   currentClientId: string | null;
   templates: PostTemplate[];
+  recurringRules: RecurringRule[];
 }
 
 const loadPersisted = (): Persisted | null => {
@@ -460,6 +552,7 @@ const loadPersisted = (): Persisted | null => {
       clients: parsed.clients ?? [],
       currentClientId: parsed.currentClientId ?? null,
       templates: parsed.templates ?? [],
+      recurringRules: parsed.recurringRules ?? [],
     };
   } catch {
     return null;
@@ -700,6 +793,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [templates, setTemplates] = useState<PostTemplate[]>(
     persisted?.templates ?? []
   );
+  const [recurringRules, setRecurringRules] = useState<RecurringRule[]>(
+    persisted?.recurringRules ?? []
+  );
   const [orgs] = useState<Org[]>(SEED_ORGS);
 
   useEffect(() => {
@@ -713,12 +809,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           clients,
           currentClientId,
           templates,
+          recurringRules,
         } as Persisted)
       );
     } catch {
       /* ignore */
     }
-  }, [user, posts, accounts, clients, currentClientId, templates]);
+  }, [user, posts, accounts, clients, currentClientId, templates, recurringRules]);
 
   const api: AppState = useMemo(
     () => ({
@@ -747,6 +844,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         setAccounts([]);
         setPosts([]);
         setTemplates([]);
+        setRecurringRules([]);
         if (plan === "agency") {
           const starter: Client = {
             id: "c" + rid(),
@@ -1069,8 +1167,149 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       removeTemplate(id) {
         setTemplates((xs) => xs.filter((t) => t.id !== id));
       },
+      recurringRules,
+      addRecurringRule(input) {
+        const now = new Date().toISOString();
+        const rule: RecurringRule = {
+          id: "rr_" + rid(),
+          name:
+            (input.name ?? "").trim() ||
+            input.text.trim().split(/\s+/).slice(0, 4).join(" ") ||
+            "Recurring post",
+          clientId: input.clientId,
+          text: input.text,
+          kind: input.kind,
+          platforms: input.platforms,
+          media: input.media,
+          cadence: input.cadence,
+          timeOfDay: input.timeOfDay,
+          startDate: input.startDate,
+          endBy: input.endBy,
+          paused: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setRecurringRules((xs) => [...xs, rule]);
+
+        const occurrences = computeOccurrences(rule);
+        const needsApproval = user?.plan === "agency";
+        const initialStatus: PostStatus = needsApproval
+          ? "pending_approval"
+          : "queued";
+        const materialized: ScheduledPost[] = occurrences.map((iso) => ({
+          id: "p" + rid(),
+          text: input.text,
+          kind: input.kind,
+          platforms: input.platforms,
+          scheduledAt: iso,
+          status: initialStatus,
+          media: input.media,
+          clientId: input.clientId,
+          recurringRuleId: rule.id,
+        }));
+        setPosts((xs) => [...xs, ...materialized]);
+        setUser((u) =>
+          u ? { ...u, postsUsed: u.postsUsed + materialized.length } : u
+        );
+
+        // Push each occurrence to Zernio when in Real OAuth mode. Skip the
+        // push for approval-gated Agency posts; approvePost() handles that
+        // once someone flips the status.
+        if (!needsApproval) {
+          for (const occ of materialized) {
+            void maybePublishToZernio(
+              occ.id,
+              {
+                text: occ.text,
+                kind: occ.kind,
+                platforms: occ.platforms,
+                scheduledAt: occ.scheduledAt,
+                media: occ.media,
+                clientId: occ.clientId,
+                recurringRuleId: occ.recurringRuleId,
+              },
+              accounts,
+              setPosts
+            );
+          }
+        }
+
+        return { rule, scheduled: materialized.length };
+      },
+      async pauseRecurringRule(id) {
+        const rule = recurringRules.find((r) => r.id === id);
+        if (!rule || rule.paused) return;
+        setRecurringRules((xs) =>
+          xs.map((r) =>
+            r.id === id ? { ...r, paused: true, updatedAt: new Date().toISOString() } : r
+          )
+        );
+        await cancelFutureOccurrencesForRule(id, posts, setPosts);
+      },
+      resumeRecurringRule(id) {
+        const rule = recurringRules.find((r) => r.id === id);
+        if (!rule || !rule.paused) return;
+        const resumed: RecurringRule = {
+          ...rule,
+          paused: false,
+          updatedAt: new Date().toISOString(),
+        };
+        setRecurringRules((xs) => xs.map((r) => (r.id === id ? resumed : r)));
+
+        // Re-materialize any missing future occurrences. We match on
+        // (recurringRuleId, scheduledAt) so resuming twice is idempotent.
+        const existing = new Set(
+          posts
+            .filter((p) => p.recurringRuleId === id)
+            .map((p) => p.scheduledAt)
+        );
+        const future = computeOccurrences(resumed).filter((iso) => !existing.has(iso));
+        if (future.length === 0) return;
+
+        const needsApproval = user?.plan === "agency";
+        const initialStatus: PostStatus = needsApproval
+          ? "pending_approval"
+          : "queued";
+        const materialized: ScheduledPost[] = future.map((iso) => ({
+          id: "p" + rid(),
+          text: resumed.text,
+          kind: resumed.kind,
+          platforms: resumed.platforms,
+          scheduledAt: iso,
+          status: initialStatus,
+          media: resumed.media,
+          clientId: resumed.clientId,
+          recurringRuleId: resumed.id,
+        }));
+        setPosts((xs) => [...xs, ...materialized]);
+        setUser((u) =>
+          u ? { ...u, postsUsed: u.postsUsed + materialized.length } : u
+        );
+        if (!needsApproval) {
+          for (const occ of materialized) {
+            void maybePublishToZernio(
+              occ.id,
+              {
+                text: occ.text,
+                kind: occ.kind,
+                platforms: occ.platforms,
+                scheduledAt: occ.scheduledAt,
+                media: occ.media,
+                clientId: occ.clientId,
+                recurringRuleId: occ.recurringRuleId,
+              },
+              accounts,
+              setPosts
+            );
+          }
+        }
+      },
+      async removeRecurringRule(id) {
+        await cancelFutureOccurrencesForRule(id, posts, setPosts);
+        setRecurringRules((xs) => xs.filter((r) => r.id !== id));
+      },
     }),
-    [user, posts, accounts, orgs, clients, currentClientId, templates]
+    [user, posts, accounts, orgs, clients, currentClientId, templates, recurringRules]
   );
 
   return <AppContext.Provider value={api}>{children}</AppContext.Provider>;
@@ -1092,6 +1331,120 @@ export function scopeAccounts(
   if (!isAgency(planId)) return accounts.filter((a) => !a.clientId);
   if (clientId === null) return accounts;
   return accounts.filter((a) => a.clientId === clientId);
+}
+
+/**
+ * Generate the ISO-timestamp list for every occurrence a recurring rule
+ * produces, up to its `endBy` cap. Occurrences in the past relative to
+ * "now" are skipped so Zernio never receives a scheduledFor before its
+ * own clock (it would 400). Defensive hard caps per cadence type prevent
+ * a misconfigured rule (e.g. endBy.count = 100000) from flooding
+ * localStorage.
+ */
+export function computeOccurrences(rule: RecurringRule): string[] {
+  const [hh, mm] = rule.timeOfDay.split(":").map((x) => parseInt(x, 10));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return [];
+  const start = parseLocalDate(rule.startDate);
+  if (!start) return [];
+
+  const endDateCap =
+    rule.endBy.type === "date" ? parseLocalDate(rule.endBy.date) : null;
+  const countCap =
+    rule.endBy.type === "count" ? Math.max(0, rule.endBy.count) : Infinity;
+
+  // Hard per-cadence safety cap so misconfigured rules never generate
+  // thousands of posts. 400 days covers > 13 months of daily posts.
+  const SAFETY_ITERATIONS = 400;
+
+  const out: string[] = [];
+  const now = Date.now();
+  const cursor = new Date(start);
+  cursor.setHours(hh, mm, 0, 0);
+
+  for (let i = 0; i < SAFETY_ITERATIONS && out.length < countCap; i++) {
+    if (endDateCap && cursor.getTime() > endDateCap.getTime() + 24 * 3600_000) {
+      break;
+    }
+    let matches = false;
+    switch (rule.cadence.type) {
+      case "daily":
+        matches = true;
+        break;
+      case "weekly":
+        matches = rule.cadence.weekdays.includes(cursor.getDay());
+        break;
+      case "monthly":
+        matches = cursor.getDate() === Math.min(28, rule.cadence.dayOfMonth);
+        break;
+    }
+    if (matches && cursor.getTime() >= now) {
+      out.push(toLocalIso(cursor));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(hh, mm, 0, 0);
+  }
+  return out;
+}
+
+function parseLocalDate(ymd: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  const out = new Date(Number(y), Number(mo) - 1, Number(d), 0, 0, 0, 0);
+  return Number.isNaN(out.getTime()) ? null : out;
+}
+
+function toLocalIso(d: Date): string {
+  // Produce a naive local "datetime-local" style string — Zernio accepts
+  // it the same way the single-post datetime-local input does.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Cancel every future occurrence tied to a rule. Past (already-sent
+ * or already-past-scheduledAt) posts stay so the user keeps their
+ * history; future queued ones are removed locally + best-effort
+ * deleted from Zernio.
+ */
+async function cancelFutureOccurrencesForRule(
+  ruleId: string,
+  posts: ScheduledPost[],
+  setPosts: React.Dispatch<React.SetStateAction<ScheduledPost[]>>
+): Promise<void> {
+  const now = Date.now();
+  const futureIds = posts
+    .filter(
+      (p) =>
+        p.recurringRuleId === ruleId &&
+        (p.status === "queued" || p.status === "pending_approval") &&
+        new Date(p.scheduledAt).getTime() > now
+    )
+    .map((p) => p.id);
+  if (futureIds.length === 0) return;
+
+  const zernioIds = posts
+    .filter((p) => futureIds.includes(p.id) && p.zernioPostId)
+    .map((p) => p.zernioPostId as string);
+
+  setPosts((xs) => xs.filter((p) => !futureIds.includes(p.id)));
+
+  if (zernioIds.length > 0 && zernioEnabled()) {
+    await Promise.all(
+      zernioIds.map(async (zid) => {
+        const result = await deletePost(zid);
+        if (result.kind === "error" || result.kind === "too_late") {
+          console.warn(
+            "[posta] recurring: Zernio cancel failed",
+            result.kind,
+            "message" in result ? result.message : undefined
+          );
+        }
+      })
+    );
+  }
 }
 
 export function scopePosts(

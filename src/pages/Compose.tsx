@@ -41,6 +41,7 @@ export default function Compose() {
     templates,
     addTemplate,
     posts: allPosts,
+    addRecurringRule,
   } = useApp();
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
@@ -79,6 +80,24 @@ export default function Compose() {
     prefillDate ? prefillFromDate(prefillDate) : defaultWhen()
   );
   const [timing, setTiming] = useState<"now" | "later">("later");
+  // Recurring-posts state. Repeat is gated on timing === "later" — a
+  // "Post now" with repeat doesn't make sense. Defaults: weekly on the
+  // day of week that matches `when`, 12 occurrences. The user can tune
+  // cadence / end in the Repeat section below the datetime picker.
+  const [repeat, setRepeat] = useState(false);
+  const [cadenceType, setCadenceType] = useState<
+    "daily" | "weekly" | "monthly"
+  >("weekly");
+  const [weeklyDays, setWeeklyDays] = useState<number[]>([]);
+  const [monthlyDom, setMonthlyDom] = useState<number>(1);
+  const [endMode, setEndMode] = useState<"count" | "date">("count");
+  const [endCount, setEndCount] = useState<number>(12);
+  const [endDate, setEndDate] = useState<string>(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 3);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  });
   const [aiThinking, setAiThinking] = useState(false);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [busyMedia, setBusyMedia] = useState(false);
@@ -323,6 +342,49 @@ export default function Compose() {
         "One or more media uploads failed. Tap Retry on the failed item, or remove it."
       );
     const now = timing === "now";
+    if (repeat && !now) {
+      // Recurring path: build a rule + let the state helper materialize
+      // all occurrences through the same schedulePost logic.
+      const d = new Date(when);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const startDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const timeOfDay = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      let cadence: Parameters<typeof addRecurringRule>[0]["cadence"];
+      if (cadenceType === "daily") {
+        cadence = { type: "daily" };
+      } else if (cadenceType === "weekly") {
+        const days = weeklyDays.length > 0 ? weeklyDays : [d.getDay()];
+        cadence = { type: "weekly", weekdays: days };
+      } else {
+        cadence = {
+          type: "monthly",
+          dayOfMonth: Math.min(28, monthlyDom || d.getDate()),
+        };
+      }
+      const endBy: Parameters<typeof addRecurringRule>[0]["endBy"] =
+        endMode === "count"
+          ? { type: "count", count: Math.max(1, endCount) }
+          : { type: "date", date: endDate };
+      const { scheduled } = addRecurringRule({
+        text: kind === "youtube" ? `${text}\n${ytUrl}` : text,
+        kind,
+        platforms,
+        media: media.length ? media : undefined,
+        cadence,
+        timeOfDay,
+        startDate,
+        endBy,
+        clientId: agency ? (currentClientId ?? undefined) : undefined,
+      });
+      if (scheduled === 0) {
+        alert(
+          "No occurrences fit between the start date and the end condition. Check your Repeat settings."
+        );
+        return;
+      }
+      nav("/schedule");
+      return;
+    }
     schedulePost({
       text: kind === "youtube" ? `${text}\n${ytUrl}` : text,
       kind,
@@ -766,6 +828,157 @@ export default function Compose() {
                 </button>
               </div>
             )}
+            <div
+              className="row"
+              style={{ marginTop: 12, alignItems: "center", gap: 8 }}
+            >
+              <label className="row" style={{ alignItems: "center", gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={repeat}
+                  onChange={(e) => setRepeat(e.target.checked)}
+                />
+                <strong>Repeat this post</strong>
+              </label>
+              {repeat && (
+                <span className="small muted">
+                  Series starts from the time above.
+                </span>
+              )}
+            </div>
+            {repeat && (
+              <div className="col" style={{ gap: 8, marginTop: 8 }}>
+                <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                  <label className="small muted" style={{ minWidth: 80 }}>
+                    Cadence
+                  </label>
+                  <select
+                    className="input"
+                    value={cadenceType}
+                    onChange={(e) =>
+                      setCadenceType(
+                        e.target.value as "daily" | "weekly" | "monthly"
+                      )
+                    }
+                    style={{ flex: 1 }}
+                  >
+                    <option value="daily">Every day</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+                {cadenceType === "weekly" && (
+                  <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                    {["S", "M", "T", "W", "T", "F", "S"].map((letter, dow) => {
+                      const active = weeklyDays.includes(dow);
+                      return (
+                        <button
+                          type="button"
+                          key={dow}
+                          className={`chip ${active ? "active" : ""}`}
+                          onClick={() =>
+                            setWeeklyDays((xs) =>
+                              active ? xs.filter((d) => d !== dow) : [...xs, dow]
+                            )
+                          }
+                          title={
+                            [
+                              "Sunday",
+                              "Monday",
+                              "Tuesday",
+                              "Wednesday",
+                              "Thursday",
+                              "Friday",
+                              "Saturday",
+                            ][dow]
+                          }
+                        >
+                          {letter}
+                        </button>
+                      );
+                    })}
+                    <span className="small muted" style={{ alignSelf: "center" }}>
+                      {weeklyDays.length === 0
+                        ? "(uses start day's weekday)"
+                        : ""}
+                    </span>
+                  </div>
+                )}
+                {cadenceType === "monthly" && (
+                  <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                    <label className="small muted" style={{ minWidth: 80 }}>
+                      On day
+                    </label>
+                    <input
+                      type="number"
+                      className="input"
+                      min={1}
+                      max={28}
+                      value={monthlyDom}
+                      onChange={(e) =>
+                        setMonthlyDom(
+                          Math.min(28, Math.max(1, parseInt(e.target.value, 10) || 1))
+                        )
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <span className="small muted">1–28</span>
+                  </div>
+                )}
+                <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                  <label className="small muted" style={{ minWidth: 80 }}>
+                    Ends
+                  </label>
+                  <select
+                    className="input"
+                    value={endMode}
+                    onChange={(e) =>
+                      setEndMode(e.target.value as "count" | "date")
+                    }
+                    style={{ flex: 1 }}
+                  >
+                    <option value="count">After N occurrences</option>
+                    <option value="date">On a specific date</option>
+                  </select>
+                </div>
+                {endMode === "count" ? (
+                  <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                    <label className="small muted" style={{ minWidth: 80 }}>
+                      Count
+                    </label>
+                    <input
+                      type="number"
+                      className="input"
+                      min={1}
+                      max={365}
+                      value={endCount}
+                      onChange={(e) =>
+                        setEndCount(
+                          Math.min(365, Math.max(1, parseInt(e.target.value, 10) || 1))
+                        )
+                      }
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                ) : (
+                  <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                    <label className="small muted" style={{ minWidth: 80 }}>
+                      Until
+                    </label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                )}
+                <p className="small muted">
+                  Each occurrence counts against your monthly posts quota.
+                </p>
+              </div>
+            )}
           </>
         ) : (
           <p className="small muted" style={{ marginTop: 8 }}>
@@ -818,7 +1031,9 @@ export default function Compose() {
           ? "Uploading media…"
           : timing === "now"
             ? "Post now"
-            : "Schedule post"}
+            : repeat
+              ? "Schedule series"
+              : "Schedule post"}
       </button>
     </main>
   );
