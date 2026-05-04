@@ -10,9 +10,11 @@ import {
 import { OAuthMock } from "../components/OAuthMock";
 import {
   createProfile,
+  deleteAccount,
   getConnectUrl,
   listAccounts,
   zernioEnabled,
+  type ZernioAccount,
 } from "../lib/zernio";
 
 type Mode = "mock" | "real";
@@ -48,6 +50,16 @@ export default function Onboarding() {
   const [confirmConnect, setConfirmConnect] = useState<Platform | null>(
     null
   );
+  /** Full list of Zernio accounts for the active tenant scope, as
+   *  returned by the last syncFromZernio call. The /platforms tiles
+   *  collapse accounts by platform (at most one per platform+client),
+   *  so this surface is what lets a user remove a specific duplicate
+   *  (e.g. Facebook connected twice to different Pages) instead of
+   *  one tile silently hiding the other. */
+  const [remoteAccounts, setRemoteAccounts] = useState<ZernioAccount[]>([]);
+  /** accountId being deleted right now, so the row disables + shows
+   *  a spinner instead of letting the user double-click. */
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem("posta-ug:oauth-mode", mode);
@@ -185,6 +197,7 @@ export default function Onboarding() {
           throw e;
         }
       }
+      setRemoteAccounts(remote);
       for (const a of remote) {
         const platMap: Record<string, Platform> = {
           facebook: "facebook",
@@ -404,10 +417,49 @@ export default function Onboarding() {
                 disabled={atCap || busy}
                 onClick={() => {
                   if (isConn) {
-                    disconnectAccount(
-                      p.id,
-                      agency ? currentClientId ?? undefined : undefined
-                    );
+                    // Before clearing local state, tell Zernio to
+                    // unlink every matching account upstream so the
+                    // next syncFromZernio doesn't rehydrate them.
+                    // Without this the tile visually flips off but
+                    // the account reappears on the next tab switch,
+                    // which looks like "the second profile can't be
+                    // removed."
+                    void (async () => {
+                      const matches = remoteAccounts.filter((ra) => {
+                        const platMap: Record<string, Platform> = {
+                          facebook: "facebook",
+                          instagram: "instagram",
+                          twitter: "x",
+                          linkedin: "linkedin",
+                          tiktok: "tiktok",
+                          youtube: "youtube",
+                          whatsapp: "whatsapp",
+                          telegram: "telegram",
+                        };
+                        return platMap[ra.platform] === p.id;
+                      });
+                      if (mode === "real" && matches.length > 0) {
+                        try {
+                          await Promise.all(
+                            matches.map((m) => deleteAccount(m._id))
+                          );
+                        } catch (err) {
+                          setRealError(
+                            err instanceof Error ? err.message : String(err)
+                          );
+                          return;
+                        }
+                        setRemoteAccounts((arr) =>
+                          arr.filter(
+                            (ra) => !matches.some((m) => m._id === ra._id)
+                          )
+                        );
+                      }
+                      disconnectAccount(
+                        p.id,
+                        agency ? currentClientId ?? undefined : undefined
+                      );
+                    })();
                   } else if (mode === "real") {
                     // Interrupt the OAuth flow with an account-picker
                     // confirmation. The popup itself is opened from
@@ -432,6 +484,106 @@ export default function Onboarding() {
           })}
         </div>
       </div>
+
+      {mode === "real" && remoteAccounts.length > 0 && (
+        <div className="card">
+          <strong>Connected accounts</strong>
+          <p className="small muted" style={{ marginTop: 4 }}>
+            Each row is a distinct page / profile on Zernio. Remove one here
+            if the platform tile shows the wrong account — this deletes it on
+            Zernio so it won't reappear on the next sync.
+          </p>
+          <div className="list" style={{ marginTop: 8 }}>
+            {remoteAccounts.map((a) => {
+              const handle = a.username || a.name || a.platform;
+              const removing = removingId === a._id;
+              return (
+                <div
+                  key={a._id}
+                  className="row"
+                  style={{
+                    padding: 8,
+                    border: "1px solid var(--line)",
+                    borderRadius: 8,
+                    background: "var(--panel)",
+                  }}
+                >
+                  <div className="col" style={{ gap: 2, alignItems: "flex-start" }}>
+                    <strong className="small">
+                      {PLATFORM_LABEL[
+                        ({
+                          facebook: "facebook",
+                          instagram: "instagram",
+                          twitter: "x",
+                          linkedin: "linkedin",
+                          tiktok: "tiktok",
+                          youtube: "youtube",
+                          whatsapp: "whatsapp",
+                          telegram: "telegram",
+                        } as Record<string, Platform>)[a.platform] ?? "facebook"
+                      ] ?? a.platform}
+                    </strong>
+                    <span className="small muted">{handle}</span>
+                  </div>
+                  <button
+                    className="btn compact danger"
+                    disabled={removing}
+                    onClick={async () => {
+                      if (
+                        !confirm(
+                          `Remove "${handle}" from Zernio? You'll have to re-OAuth to reconnect it.`
+                        )
+                      ) {
+                        return;
+                      }
+                      setRemovingId(a._id);
+                      try {
+                        await deleteAccount(a._id);
+                        setRemoteAccounts((arr) =>
+                          arr.filter((x) => x._id !== a._id)
+                        );
+                        // If this was the last account of its platform
+                        // within scope, also mirror the removal to local
+                        // state so the tile flips off in the same frame.
+                        const platMap: Record<string, Platform> = {
+                          facebook: "facebook",
+                          instagram: "instagram",
+                          twitter: "x",
+                          linkedin: "linkedin",
+                          tiktok: "tiktok",
+                          youtube: "youtube",
+                          whatsapp: "whatsapp",
+                          telegram: "telegram",
+                        };
+                        const platform = platMap[a.platform];
+                        if (platform) {
+                          const othersOfSamePlatform = remoteAccounts
+                            .filter((x) => x._id !== a._id)
+                            .some((x) => platMap[x.platform] === platform);
+                          if (!othersOfSamePlatform) {
+                            disconnectAccount(
+                              platform,
+                              agency ? currentClientId ?? undefined : undefined
+                            );
+                          }
+                        }
+                      } catch (err) {
+                        alert(
+                          err instanceof Error ? err.message : String(err)
+                        );
+                      } finally {
+                        setRemovingId(null);
+                      }
+                    }}
+                  >
+                    {removing ? "Removing…" : "Remove"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <strong>Heads up</strong>

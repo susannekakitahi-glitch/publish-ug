@@ -236,6 +236,26 @@ async def update_post(post_id: str, body: PostUpdate) -> Any:
         return await _raise(r)
 
 
+@app.delete("/accounts/{account_id}")
+async def disconnect_account(account_id: str) -> Any:
+    """Proxy to Zernio's DELETE /v1/accounts/{accountId}.
+
+    Unlinks a connected social account (Facebook Page, IG business
+    account, etc.) from the caller's Zernio profile so that subsequent
+    /accounts?profileId=… list calls stop returning it. Without this,
+    /onboarding's syncFromZernio re-adds any account the user clicked
+    "Disconnect" on, because we'd only scrubbed local state.
+    """
+    async with _client() as c:
+        r = await c.delete(f"/accounts/{account_id}")
+        if r.status_code >= 400:
+            return await _raise(r)
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": True}
+
+
 @app.delete("/posts/{post_id}")
 async def delete_post(post_id: str) -> Any:
     """Proxy to Zernio's DELETE /v1/posts/{postId}.

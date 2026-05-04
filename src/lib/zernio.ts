@@ -86,6 +86,21 @@ export async function listAccounts(profileId: string): Promise<ZernioAccount[]> 
   return r.accounts || [];
 }
 
+/** Permanently unlink a social account from the caller's Zernio profile.
+ *  Returns true on success. Treats 404 as success (the account is
+ *  already gone upstream) so Posta can self-heal when a stale _id is
+ *  referenced after a background cleanup / re-sync race. */
+export async function deleteAccount(accountId: string): Promise<boolean> {
+  try {
+    await j(`/accounts/${accountId}`, { method: "DELETE" });
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.startsWith("404")) return true;
+    throw e;
+  }
+}
+
 export async function getConnectUrl(
   platform: Platform,
   profileId: string
