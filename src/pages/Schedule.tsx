@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { isAgency, scopePosts, useApp, type ScheduledPost } from "../lib/state";
 import { zernioEnabled } from "../lib/zernio";
 
@@ -67,6 +79,24 @@ export default function Schedule() {
   const [distributeEnd, setDistributeEnd] = useState("18:00");
   const [distributeBusy, setDistributeBusy] = useState(false);
   const [distributeError, setDistributeError] = useState<string | null>(null);
+  /** id of the post currently being dragged, so DragOverlay can render
+   *  its preview without pulling it out of the list. */
+  const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
+  /** Transient dayKey under the pointer during drag, used to highlight
+   *  the drop target. Cleared on drop/cancel. */
+  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+
+  // Pointer on desktop uses a small activation distance so single-tap
+  // buttons inside post cards (Edit / Cancel) still fire reliably.
+  // Touch on mobile uses a 200ms press-and-hold so a normal scroll
+  // flick doesn't trigger a drag. Both sensor types are always
+  // registered; dnd-kit picks the right one per device.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    })
+  );
 
   function openEdit(p: ScheduledPost) {
     setEditError(null);
@@ -239,6 +269,55 @@ export default function Schedule() {
   }
 
   const clientOf = (cid?: string) => clients.find((c) => c.id === cid);
+
+  function onDragStart(e: DragStartEvent) {
+    const raw = String(e.active.id);
+    if (raw.startsWith("post-")) {
+      setDraggingPostId(raw.slice("post-".length));
+    }
+  }
+
+  async function onDragEnd(e: DragEndEvent) {
+    setDraggingPostId(null);
+    setDragOverDay(null);
+    const activeId = String(e.active.id);
+    if (!activeId.startsWith("post-")) return;
+    const postId = activeId.slice("post-".length);
+    const overId = e.over ? String(e.over.id) : null;
+    if (!overId || !overId.startsWith("day-")) return;
+    const targetDay = overId.slice("day-".length);
+
+    const post = queued.find((p) => p.id === postId);
+    if (!post) return;
+    const src = new Date(post.scheduledAt);
+    if (dayKey(src) === targetDay) return; // dropped on same day → no-op
+
+    const [yy, mm, dd] = targetDay.split("-").map((n) => parseInt(n, 10));
+    if (Number.isNaN(yy) || Number.isNaN(mm) || Number.isNaN(dd)) return;
+    // Preserve the original hour/minute/second so "9am every Friday"
+    // stays a 9am post after drag-to-reschedule.
+    const next = new Date(yy, mm - 1, dd, src.getHours(), src.getMinutes(), src.getSeconds(), src.getMilliseconds());
+
+    if (next.getTime() <= Date.now()) {
+      const ok = confirm(
+        "That day is in the past — the post can't be published. Move anyway?"
+      );
+      if (!ok) return;
+    }
+
+    const result = await editPost(postId, { scheduledAt: next.toISOString() });
+    if (result === "too_late") {
+      alert("Zernio already published this post. Queue refreshed.");
+      void syncPostStatuses();
+      return;
+    }
+    if (result === "error") {
+      alert("Couldn't reach Zernio to reschedule. Try again in a moment.");
+      return;
+    }
+    // Follow the post so the user sees where it landed.
+    setSelectedDay(targetDay);
+  }
 
   return (
     <main className="page">
@@ -498,57 +577,50 @@ export default function Schedule() {
       )}
 
       {view === "calendar" && (
-        <>
+        <DndContext
+          sensors={sensors}
+          onDragStart={onDragStart}
+          onDragOver={(e) => {
+            const overId = e.over ? String(e.over.id) : null;
+            setDragOverDay(
+              overId && overId.startsWith("day-")
+                ? overId.slice("day-".length)
+                : null
+            );
+          }}
+          onDragCancel={() => {
+            setDraggingPostId(null);
+            setDragOverDay(null);
+          }}
+          onDragEnd={onDragEnd}
+        >
           <div className="card">
             <div className="row">
               <strong>{cal.monthLabel}</strong>
               <span className="small muted">{queued.length} scheduled</span>
             </div>
+            {draggingPostId && (
+              <p className="small muted" style={{ marginTop: 6 }}>
+                Drop on a day to reschedule.
+              </p>
+            )}
             <div className="calendar" style={{ marginTop: 8 }}>
               {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
                 <div key={i} className="dow">
                   {d}
                 </div>
               ))}
-              {cal.cells.map((c, i) => {
-                const isSelected = c.key !== "" && selectedDay === c.key;
-                const clickable = c.inMonth;
-                return (
-                  <div
-                    key={i}
-                    role={clickable ? "button" : undefined}
-                    tabIndex={clickable ? 0 : -1}
-                    aria-pressed={isSelected || undefined}
-                    onClick={() => {
-                      if (!clickable) return;
-                      setSelectedDay((prev) => (prev === c.key ? null : c.key));
-                    }}
-                    onKeyDown={(e) => {
-                      if (!clickable) return;
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedDay((prev) => (prev === c.key ? null : c.key));
-                      }
-                    }}
-                    className={`day${c.today ? " today" : ""}`}
-                    style={{
-                      ...(c.inMonth ? {} : { opacity: 0.35 }),
-                      ...(clickable ? { cursor: "pointer" } : {}),
-                      ...(isSelected
-                        ? {
-                            outline: "2px solid var(--accent, #f5d423)",
-                            outlineOffset: -2,
-                          }
-                        : {}),
-                    }}
-                  >
-                    {c.dayNum}
-                    {c.postCount > 0 && (
-                      <span className="dot" title={`${c.postCount} posts`} />
-                    )}
-                  </div>
-                );
-              })}
+              {cal.cells.map((c, i) => (
+                <CalendarDayCell
+                  key={i}
+                  cell={c}
+                  isSelected={c.key !== "" && selectedDay === c.key}
+                  isDragTarget={!!draggingPostId && dragOverDay === c.key}
+                  onSelect={() =>
+                    setSelectedDay((prev) => (prev === c.key ? null : c.key))
+                  }
+                />
+              ))}
             </div>
           </div>
 
@@ -593,10 +665,41 @@ export default function Schedule() {
                 </p>
               )}
               <div className="list" style={{ marginTop: 8 }}>
-                {postsOnSelectedDay.map((p) => {
-                  const c = clientOf(p.clientId);
+                {postsOnSelectedDay.map((p) => (
+                  <DraggablePostCard
+                    key={p.id}
+                    post={p}
+                    client={clientOf(p.clientId)}
+                    isDragging={draggingPostId === p.id}
+                    onEdit={() => openEdit(p)}
+                    onCancel={() => {
+                      if (
+                        confirm(
+                          "Cancel this post? It will be removed from your queue and Zernio's queue."
+                        )
+                      ) {
+                        void cancelPost(p.id);
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          <DragOverlay dropAnimation={null}>
+            {draggingPostId
+              ? (() => {
+                  const p = queued.find((x) => x.id === draggingPostId);
+                  if (!p) return null;
                   return (
-                    <div key={p.id} className="card">
+                    <div
+                      className="card"
+                      style={{
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                        opacity: 0.95,
+                        cursor: "grabbing",
+                      }}
+                    >
                       <div className="row">
                         <span className="pill">
                           {new Date(p.scheduledAt).toLocaleTimeString([], {
@@ -604,61 +707,16 @@ export default function Schedule() {
                             minute: "2-digit",
                           })}
                         </span>
-                        <span className="small muted">
-                          {p.platforms.join(" · ")}
-                        </span>
                       </div>
-                      {c && (
-                        <div
-                          className="row"
-                          style={{
-                            marginTop: 6,
-                            gap: 6,
-                            justifyContent: "flex-start",
-                          }}
-                        >
-                          <span
-                            className="client-swatch small-swatch"
-                            style={{ background: c.color }}
-                          />
-                          <span className="small muted">{c.name}</span>
-                        </div>
-                      )}
                       <p style={{ marginTop: 8 }}>
                         {p.text || "(media post)"}
                       </p>
-                      <div
-                        className="row"
-                        style={{ marginTop: 8, justifyContent: "flex-end", gap: 6 }}
-                      >
-                        <button
-                          className="btn compact"
-                          onClick={() => openEdit(p)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="btn compact danger"
-                          onClick={() => {
-                            if (
-                              confirm(
-                                "Cancel this post? It will be removed from your queue and Zernio's queue."
-                              )
-                            ) {
-                              void cancelPost(p.id);
-                            }
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
                     </div>
                   );
-                })}
-              </div>
-            </div>
-          )}
-        </>
+                })()
+              : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {view === "sent" && (
@@ -911,6 +969,145 @@ interface Cell {
   /** YYYY-MM-DD key matching dayKey(). Empty string for out-of-month
    *  filler cells so the click handler can no-op cleanly. */
   key: string;
+}
+
+function CalendarDayCell({
+  cell,
+  isSelected,
+  isDragTarget,
+  onSelect,
+}: {
+  cell: Cell;
+  isSelected: boolean;
+  isDragTarget: boolean;
+  onSelect: () => void;
+}) {
+  // Out-of-month filler cells stay inert — not droppable, not clickable —
+  // so a stray drop on a filler cell can't reschedule to a weird date.
+  const enabled = cell.inMonth;
+  const { setNodeRef, isOver } = useDroppable({
+    id: enabled ? `day-${cell.key}` : `day-disabled-${cell.dayNum}`,
+    disabled: !enabled,
+  });
+  const targeted = enabled && (isDragTarget || isOver);
+  return (
+    <div
+      ref={setNodeRef}
+      role={enabled ? "button" : undefined}
+      tabIndex={enabled ? 0 : -1}
+      aria-pressed={isSelected || undefined}
+      onClick={() => enabled && onSelect()}
+      onKeyDown={(e) => {
+        if (!enabled) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`day${cell.today ? " today" : ""}`}
+      style={{
+        ...(cell.inMonth ? {} : { opacity: 0.35 }),
+        ...(enabled ? { cursor: "pointer" } : {}),
+        ...(isSelected
+          ? {
+              outline: "2px solid var(--accent, #f5d423)",
+              outlineOffset: -2,
+            }
+          : {}),
+        ...(targeted
+          ? {
+              background: "var(--accent, #f5d423)",
+              color: "#000",
+            }
+          : {}),
+      }}
+    >
+      {cell.dayNum}
+      {cell.postCount > 0 && (
+        <span className="dot" title={`${cell.postCount} posts`} />
+      )}
+    </div>
+  );
+}
+
+function DraggablePostCard({
+  post,
+  client,
+  isDragging,
+  onEdit,
+  onCancel,
+}: {
+  post: ScheduledPost;
+  client: { color: string; name: string } | undefined;
+  isDragging: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+}) {
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: `post-${post.id}`,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className="card"
+      {...attributes}
+      {...listeners}
+      style={{
+        // Hide the source card while the DragOverlay shows the preview
+        // — keeps the layout stable and avoids the "ghost" being
+        // visually duplicated.
+        opacity: isDragging ? 0 : 1,
+        cursor: "grab",
+        touchAction: "none",
+      }}
+    >
+      <div className="row">
+        <span className="pill">
+          {new Date(post.scheduledAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+        <span className="small muted">{post.platforms.join(" · ")}</span>
+      </div>
+      {client && (
+        <div
+          className="row"
+          style={{
+            marginTop: 6,
+            gap: 6,
+            justifyContent: "flex-start",
+          }}
+        >
+          <span
+            className="client-swatch small-swatch"
+            style={{ background: client.color }}
+          />
+          <span className="small muted">{client.name}</span>
+        </div>
+      )}
+      <p style={{ marginTop: 8 }}>{post.text || "(media post)"}</p>
+      <div
+        className="row"
+        style={{ marginTop: 8, justifyContent: "flex-end", gap: 6 }}
+      >
+        <button
+          className="btn compact"
+          onClick={onEdit}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          Edit
+        </button>
+        <button
+          className="btn compact danger"
+          onClick={onCancel}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function buildCalendar(queued: { scheduledAt: string }[]): {
