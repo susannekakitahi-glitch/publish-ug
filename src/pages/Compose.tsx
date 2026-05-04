@@ -19,6 +19,21 @@ import {
   type BestTimeSlot,
 } from "../lib/bestTime";
 import { PlatformPreview } from "../components/PlatformPreview";
+import {
+  DndContext,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS as DndCSS } from "@dnd-kit/utilities";
 
 type Kind = ScheduledPost["kind"];
 
@@ -262,6 +277,40 @@ export default function Compose() {
       if (item) fileBlobs.current.delete(item.name);
       return m.filter((_, idx) => idx !== i);
     });
+
+  // Sensors mirror the Calendar drag setup: small distance on desktop
+  // so single-tap × and Retry buttons still fire, press-and-hold on
+  // touch so scrolling the page doesn't accidentally start a reorder.
+  const mediaSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    })
+  );
+
+  function onMediaReorder(e: DragEndEvent) {
+    const activeId = String(e.active.id);
+    const overId = e.over ? String(e.over.id) : null;
+    if (!overId || activeId === overId) return;
+    setMedia((arr) => {
+      const from = arr.findIndex((m) => m.name === activeId);
+      const to = arr.findIndex((m) => m.name === overId);
+      if (from === -1 || to === -1) return arr;
+      return arrayMove(arr, from, to);
+    });
+  }
+
+  // Desktop-only drop zone: user can drag image / video files from
+  // their OS file manager straight onto the composer. Mobile uses
+  // the existing Camera / Choose buttons (no OS drag).
+  const [dropZoneActive, setDropZoneActive] = useState(false);
+  function onNativeDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDropZoneActive(false);
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    void onPickFiles(files);
+  }
 
   const changeKind = (k: Kind) => {
     setKind(k);
@@ -530,82 +579,84 @@ export default function Compose() {
       </p>
 
       {mediaMode !== "none" && (
-        <div className="card">
-          <span className="label">
-            {kind === "carousel"
-              ? `Photos (${media.length}/${MAX_CAROUSEL})`
-              : kind === "video"
-                ? "Video"
-                : "Photo"}
-          </span>
+        <div
+          className="card"
+          onDragOver={(e) => {
+            // Accept OS file drags only — ignore dnd-kit's synthetic
+            // events (they don't set dataTransfer.types with "Files").
+            if (
+              e.dataTransfer &&
+              Array.from(e.dataTransfer.types).includes("Files")
+            ) {
+              e.preventDefault();
+              setDropZoneActive(true);
+            }
+          }}
+          onDragLeave={(e) => {
+            // Fire only when leaving the card itself, not one of its
+            // children (dragleave bubbles from every nested node).
+            if (e.currentTarget === e.target) setDropZoneActive(false);
+          }}
+          onDrop={onNativeDrop}
+          style={
+            dropZoneActive
+              ? { outline: "2px dashed var(--accent, #f5d423)", outlineOffset: -4 }
+              : undefined
+          }
+        >
+          <div className="row">
+            <span className="label">
+              {kind === "carousel"
+                ? `Photos (${media.length}/${MAX_CAROUSEL})`
+                : kind === "video"
+                  ? "Video"
+                  : "Photo"}
+            </span>
+            {kind === "carousel" && media.length > 1 && (
+              <span className="small muted">
+                Drag to reorder · first photo is the cover
+              </span>
+            )}
+          </div>
 
           {media.length > 0 && (
-            <div className="media-grid">
-              {media.map((m, i) => (
-                <div key={i} className="media-tile">
-                  {m.kind === "image" ? (
-                    <img src={m.dataUrl} alt={m.name} />
-                  ) : (
-                    <div className="media-video">
-                      {m.dataUrl ? <img src={m.dataUrl} alt={m.name} /> : null}
-                      <span className="media-video-badge">▶ video</span>
-                    </div>
-                  )}
-                  {(m.uploading || m.uploadError) && (
-                    <div
-                      className="media-upload-overlay"
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 4,
-                        background: m.uploadError
-                          ? "rgba(180,30,30,0.75)"
-                          : "rgba(0,0,0,0.55)",
-                        color: "#fff",
-                        fontSize: 11,
-                        textAlign: "center",
-                        padding: 6,
-                      }}
-                    >
-                      {m.uploading && <span>Uploading…</span>}
-                      {m.uploadError && (
-                        <>
-                          <span>Upload failed</span>
-                          <span style={{ opacity: 0.85, fontSize: 10 }}>
-                            {m.uploadError.slice(0, 60)}
-                          </span>
-                          <button
-                            className="btn compact"
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              retryUpload(m.name);
-                            }}
-                            style={{ marginTop: 2 }}
-                          >
-                            Retry
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  <button
-                    className="media-remove"
-                    onClick={() => removeMedia(i)}
-                    aria-label={`Remove ${m.name}`}
-                  >
-                    ×
-                  </button>
-                  <span className="media-name" title={m.name}>
-                    {m.name}
-                  </span>
+            <DndContext sensors={mediaSensors} onDragEnd={onMediaReorder}>
+              <SortableContext
+                items={media.map((m) => m.name)}
+                strategy={rectSortingStrategy}
+              >
+                <div className="media-grid">
+                  {media.map((m, i) => (
+                    <SortableMediaTile
+                      key={m.name}
+                      item={m}
+                      index={i}
+                      showCoverBadge={
+                        kind === "carousel" && media.length > 1 && i === 0
+                      }
+                      onRemove={() => removeMedia(i)}
+                      onRetry={() => retryUpload(m.name)}
+                    />
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
+          )}
+
+          {media.length === 0 && (
+            <p
+              className="small muted"
+              style={{
+                marginTop: 6,
+                padding: "12px 8px",
+                border: "1px dashed var(--line)",
+                borderRadius: 8,
+                textAlign: "center",
+              }}
+            >
+              Drag {mediaMode === "image" ? "images" : "a video"} here, or use the
+              buttons below.
+            </p>
           )}
           {(anyUploading || anyUploadFailed) && (
             <p
@@ -1203,4 +1254,119 @@ function capturePoster(file: File): Promise<string> {
     v.onseeked = grab;
     v.onerror = () => done("");
   });
+}
+
+function SortableMediaTile({
+  item,
+  showCoverBadge,
+  onRemove,
+  onRetry,
+}: {
+  item: MediaItem;
+  /** Position in the grid. Currently unused in the render but kept
+   *  so future UX (e.g. "Photo 3 of 5" announcements) can plug in. */
+  index: number;
+  showCoverBadge: boolean;
+  onRemove: () => void;
+  onRetry: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.name });
+  const style: React.CSSProperties = {
+    transform: DndCSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    cursor: "grab",
+    touchAction: "none",
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      className="media-tile"
+      style={style}
+      {...attributes}
+      {...listeners}
+    >
+      {item.kind === "image" ? (
+        <img src={item.dataUrl} alt={item.name} />
+      ) : (
+        <div className="media-video">
+          {item.dataUrl ? <img src={item.dataUrl} alt={item.name} /> : null}
+          <span className="media-video-badge">▶ video</span>
+        </div>
+      )}
+      {showCoverBadge && (
+        <span
+          className="media-video-badge"
+          style={{ top: 4, bottom: "auto", left: 4, right: "auto" }}
+        >
+          Cover
+        </span>
+      )}
+      {(item.uploading || item.uploadError) && (
+        <div
+          className="media-upload-overlay"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 4,
+            background: item.uploadError
+              ? "rgba(180,30,30,0.75)"
+              : "rgba(0,0,0,0.55)",
+            color: "#fff",
+            fontSize: 11,
+            textAlign: "center",
+            padding: 6,
+          }}
+        >
+          {item.uploading && <span>Uploading…</span>}
+          {item.uploadError && (
+            <>
+              <span>Upload failed</span>
+              <span style={{ opacity: 0.85, fontSize: 10 }}>
+                {item.uploadError.slice(0, 60)}
+              </span>
+              <button
+                className="btn compact"
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry();
+                }}
+                style={{ marginTop: 2 }}
+              >
+                Retry
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      <button
+        type="button"
+        className="media-remove"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        aria-label={`Remove ${item.name}`}
+      >
+        ×
+      </button>
+      <span className="media-name" title={item.name}>
+        {item.name}
+      </span>
+    </div>
+  );
 }
