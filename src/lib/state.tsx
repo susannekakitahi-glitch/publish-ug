@@ -1115,6 +1115,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         setClients((xs) => xs.filter((c) => c.id !== id));
         setAccounts((a) => a.filter((x) => x.clientId !== id));
         setPosts((xs) => xs.filter((p) => p.clientId !== id));
+        // Cascade to recurring rules too — otherwise an orphaned rule
+        // stays around in "all clients" view and Resume would
+        // materialize posts with a dangling clientId invisible in
+        // scoped views.
+        setRecurringRules((xs) => xs.filter((r) => r.clientId !== id));
         setCurrentClientId((cur) => (cur === id ? null : cur));
       },
       selectClient(id) {
@@ -1189,9 +1194,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           createdAt: now,
           updatedAt: now,
         };
+
+        // Compute before persisting — if the start + end window yields
+        // zero occurrences, skip the rule entirely so Settings doesn't
+        // show an orphaned row the user has to clean up manually.
+        const occurrences = computeOccurrences(rule);
+        if (occurrences.length === 0) {
+          return { rule, scheduled: 0 };
+        }
         setRecurringRules((xs) => [...xs, rule]);
 
-        const occurrences = computeOccurrences(rule);
         const needsApproval = user?.plan === "agency";
         const initialStatus: PostStatus = needsApproval
           ? "pending_approval"
@@ -1353,8 +1365,11 @@ export function computeOccurrences(rule: RecurringRule): string[] {
     rule.endBy.type === "count" ? Math.max(0, rule.endBy.count) : Infinity;
 
   // Hard per-cadence safety cap so misconfigured rules never generate
-  // thousands of posts. 400 days covers > 13 months of daily posts.
-  const SAFETY_ITERATIONS = 400;
+  // thousands of posts. Iteration walks day-by-day, so we need enough
+  // headroom to cover the deepest cadence the UI allows: monthly with
+  // count=24 needs ~24 * 31 = 744 iterations. 1100 gives comfortable
+  // headroom (covers ~3 years of daily posts too).
+  const SAFETY_ITERATIONS = 1100;
 
   const out: string[] = [];
   const now = Date.now();
