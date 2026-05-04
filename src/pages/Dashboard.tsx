@@ -6,6 +6,7 @@ import {
   zernioEnabled,
   type AnalyticsResult,
 } from "../lib/zernio";
+import { computeBestTimeHint, formatBestTimeSlot } from "../lib/bestTime";
 
 export default function Dashboard() {
   const {
@@ -91,6 +92,9 @@ export default function Dashboard() {
   if (!user) return null;
 
   const sent = posts.filter((p) => p.status === "sent");
+  // Best-time hint uses the same scoped posts as the KPI tiles, so
+  // agency users get a per-client recommendation in single-client view.
+  const bestTimeHint = computeBestTimeHint(posts);
   const queuedAll = posts.filter((p) => p.status === "queued");
   const pendingAll = posts.filter((p) => p.status === "pending_approval");
 
@@ -184,6 +188,48 @@ export default function Dashboard() {
             <>Showing demo numbers · Zernio analytics unavailable ({analytics.message})</>
           )}
         </p>
+      )}
+
+      {bestTimeHint && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="row">
+            <strong>Best times to post</strong>
+            <span className="small muted">
+              from {bestTimeHint.totalSamples} sent
+            </span>
+          </div>
+          <p className="small muted" style={{ marginTop: 4 }}>
+            Based on reach + clicks on your own sent posts.
+          </p>
+          <div className="col" style={{ marginTop: 8, gap: 4 }}>
+            <div className="row">
+              <span>
+                🏆 <strong>{formatBestTimeSlot(bestTimeHint.top)}</strong>
+              </span>
+              <span className="small muted">
+                {bestTimeHint.top.samples} post
+                {bestTimeHint.top.samples === 1 ? "" : "s"}
+              </span>
+            </div>
+            {bestTimeHint.runnersUp.map((slot) => (
+              <div key={`${slot.dayOfWeek}-${slot.hour}`} className="row">
+                <span className="small muted">
+                  {formatBestTimeSlot(slot)}
+                </span>
+                <span className="small muted">
+                  {slot.samples} post{slot.samples === 1 ? "" : "s"}
+                </span>
+              </div>
+            ))}
+          </div>
+          <Link
+            to="/compose"
+            className="btn compact ghost"
+            style={{ marginTop: 10 }}
+          >
+            Schedule one now
+          </Link>
+        </div>
       )}
 
       <div className="card" style={{ marginTop: 12 }}>

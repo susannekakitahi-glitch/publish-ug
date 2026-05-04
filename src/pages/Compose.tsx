@@ -4,12 +4,18 @@ import {
   ALL_PLATFORMS,
   isAgency,
   scopeAccounts,
+  scopePosts,
   useApp,
   type Platform,
   type MediaItem,
 } from "../lib/state";
 import type { ScheduledPost } from "../lib/state";
 import { uploadMediaFile, zernioEnabled } from "../lib/zernio";
+import {
+  computeBestTimeHint,
+  formatBestTimeSlot,
+  type BestTimeSlot,
+} from "../lib/bestTime";
 
 type Kind = ScheduledPost["kind"];
 
@@ -33,6 +39,7 @@ export default function Compose() {
     selectClient,
     templates,
     addTemplate,
+    posts: allPosts,
   } = useApp();
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
@@ -49,6 +56,18 @@ export default function Compose() {
   const accounts = agency && currentClientId === null ? [] : scopedAccounts;
   const needsClientPick = agency && currentClientId === null && clients.length > 0;
   const needsFirstClient = agency && clients.length === 0;
+  // Best-time hint: pull a suggested dow/hour slot from the user's own
+  // sent-post history, scoped to the current client in agency mode so
+  // each brand gets its own recommendation. null until enough history
+  // has been sent + synced via syncPostStatuses.
+  const scopedSentPosts = useMemo(
+    () => scopePosts(allPosts, user?.plan, currentClientId),
+    [allPosts, user?.plan, currentClientId]
+  );
+  const bestTimeHint = useMemo(
+    () => computeBestTimeHint(scopedSentPosts),
+    [scopedSentPosts]
+  );
   const [kind, setKind] = useState<Kind>("status");
   const [text, setText] = useState("");
   const [ytUrl, setYtUrl] = useState("");
@@ -227,6 +246,27 @@ export default function Compose() {
     fileBlobs.current.clear();
     setMedia([]);
   };
+
+  // Pre-fill the `when` datetime-local with the next upcoming occurrence
+  // of the given dow/hour slot in local time. Used by the 'Use this slot'
+  // shortcut on the best-time hint so the user goes from hint to scheduled
+  // in one tap. Always in the future — if today matches the dow but the
+  // hour has already passed, jumps forward a week.
+  function applyBestTimeSlot(slot: BestTimeSlot) {
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(slot.hour, 0, 0, 0);
+    let delta = (slot.dayOfWeek - now.getDay() + 7) % 7;
+    if (delta === 0 && target.getTime() <= now.getTime()) delta = 7;
+    target.setDate(target.getDate() + delta);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setWhen(
+      `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(
+        target.getDate()
+      )}T${pad(target.getHours())}:${pad(target.getMinutes())}`
+    );
+    setTiming("later");
+  }
 
   // Apply a saved caption template to the in-progress draft. Switches
   // the post kind to the template's kind (so the matching media slots
@@ -701,6 +741,30 @@ export default function Compose() {
             <p className="small muted" style={{ marginTop: 6 }}>
               Africa/Kampala time. We'll retry if the network is down.
             </p>
+            {bestTimeHint && (
+              <div
+                className="row"
+                style={{
+                  marginTop: 8,
+                  alignItems: "flex-start",
+                  gap: 8,
+                }}
+              >
+                <p className="small muted" style={{ flex: 1 }}>
+                  💡 Best slot so far:{" "}
+                  <strong>{formatBestTimeSlot(bestTimeHint.top)}</strong>{" "}
+                  (from {bestTimeHint.totalSamples} sent post
+                  {bestTimeHint.totalSamples === 1 ? "" : "s"})
+                </p>
+                <button
+                  type="button"
+                  className="btn compact ghost"
+                  onClick={() => applyBestTimeSlot(bestTimeHint.top)}
+                >
+                  Use this slot
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <p className="small muted" style={{ marginTop: 8 }}>
