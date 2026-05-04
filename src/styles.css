@@ -1119,8 +1119,12 @@ p {
 }
 
 /* Platform accent colors (subtle — no full brand takeover). */
-.pp-fb .pp-card { border-top: 3px solid #1877f2; }
-.pp-ig .pp-card {
+/* Outer wrapper carries the full platform name (pp pp-facebook etc.),
+ *  so these descendant selectors target the card inside it. Keep both
+ *  forms (full name on wrapper, abbreviation on the card itself) in
+ *  sync; dropping either breaks the accents. */
+.pp-facebook .pp-card { border-top: 3px solid #1877f2; }
+.pp-instagram .pp-card {
   border-top: 3px solid transparent;
   background-image: linear-gradient(#fff, #fff),
     linear-gradient(90deg, #f58529, #dd2a7b, #8134af, #515bd4);
@@ -1128,12 +1132,12 @@ p {
   background-clip: padding-box, border-box;
 }
 .pp-x .pp-card { border-top: 3px solid #0f1419; }
-.pp-li .pp-card { border-top: 3px solid #0a66c2; }
-.pp-tt .pp-card { border-top: 3px solid #000; background: #000; color: #fff; }
-.pp-tt .pp-card .pp-body { color: #fff; }
-.pp-yt .pp-card { border-top: 3px solid #ff0000; }
-.pp-wa .pp-card { border-top: 3px solid #25d366; background: #e7fce3; }
-.pp-tg .pp-card { border-top: 3px solid #2aabee; }
+.pp-linkedin .pp-card { border-top: 3px solid #0a66c2; }
+.pp-tiktok .pp-card { border-top: 3px solid #000; background: #000; color: #fff; }
+.pp-tiktok .pp-card .pp-body { color: #fff; }
+.pp-youtube .pp-card { border-top: 3px solid #ff0000; }
+.pp-whatsapp .pp-card { border-top: 3px solid #25d366; background: #e7fce3; }
+.pp-telegram .pp-card { border-top: 3px solid #2aabee; }
 
 /* IG: caption below media, square feed style */
 .pp-ig-actions { border-top: 0; padding: 6px 10px; font-size: 18px; justify-content: flex-start; gap: 14px; }
@@ -1172,7 +1176,7 @@ p {
 }
 
 /* WhatsApp: green bubble on a chat-ish background */
-.pp-wa .pp-card { padding: 10px; }
+.pp-whatsapp .pp-card { padding: 10px; }
 .pp-wa-bubble {
   background: #dcf8c6;
   border-radius: 10px;
