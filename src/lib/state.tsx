@@ -1294,9 +1294,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           recurringRuleId: resumed.id,
         }));
         setPosts((xs) => [...xs, ...materialized]);
-        setUser((u) =>
-          u ? { ...u, postsUsed: u.postsUsed + materialized.length } : u
-        );
+        // Intentionally no postsUsed increment on resume: the original
+        // occurrences were already counted in addRecurringRule, and
+        // pause / cancelFutureOccurrencesForRule doesn't refund them
+        // (matching cancelPost's behavior). Adding here would let a
+        // pause → resume cycle permanently inflate a user's quota.
         if (!needsApproval) {
           for (const occ of materialized) {
             void maybePublishToZernio(
