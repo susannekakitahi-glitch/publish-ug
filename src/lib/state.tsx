@@ -1400,7 +1400,14 @@ export function computeOccurrences(rule: RecurringRule): string[] {
   const cursor = new Date(start);
   cursor.setHours(hh, mm, 0, 0);
 
-  for (let i = 0; i < SAFETY_ITERATIONS && out.length < countCap; i++) {
+  // Count every cadence match toward countCap (not just future matches)
+  // so Resume on an older rule doesn't over-generate. Example: weekly
+  // count=12 with 5 Fridays already past — past matches fill the first
+  // 5 slots, Resume only re-materializes the 7 remaining future slots.
+  // Without this, Resume would generate 12 new future posts on top of
+  // 5 already-sent ones, blowing past the user's configured series size.
+  let totalMatches = 0;
+  for (let i = 0; i < SAFETY_ITERATIONS && totalMatches < countCap; i++) {
     if (endDateCap && cursor.getTime() > endDateCap.getTime() + 24 * 3600_000) {
       break;
     }
@@ -1416,8 +1423,11 @@ export function computeOccurrences(rule: RecurringRule): string[] {
         matches = cursor.getDate() === Math.min(28, rule.cadence.dayOfMonth);
         break;
     }
-    if (matches && cursor.getTime() >= now) {
-      out.push(toLocalIso(cursor));
+    if (matches) {
+      totalMatches++;
+      if (cursor.getTime() >= now) {
+        out.push(toLocalIso(cursor));
+      }
     }
     cursor.setDate(cursor.getDate() + 1);
     cursor.setHours(hh, mm, 0, 0);
