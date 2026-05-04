@@ -5,7 +5,15 @@ import { PLANS, UGX, getPlan, type PlanId } from "../lib/pricing";
 import { useApp } from "../lib/state";
 
 export default function Settings() {
-  const { user, logout, topUpPosts, setPlan } = useApp();
+  const {
+    user,
+    logout,
+    topUpPosts,
+    setPlan,
+    templates,
+    updateTemplate,
+    removeTemplate,
+  } = useApp();
   const nav = useNavigate();
   const [pendingPack, setPendingPack] = useState<{
     label: string;
@@ -122,6 +130,73 @@ export default function Settings() {
           </div>
         </div>
       )}
+
+      <div className="card">
+        <strong>Caption templates</strong>
+        <p className="small muted" style={{ marginTop: 4 }}>
+          Reusable caption presets. Save one from Compose, then pick it
+          from the <em>Use template</em> menu next time.
+        </p>
+        {templates.length === 0 ? (
+          <p className="small muted" style={{ marginTop: 8 }}>
+            No templates yet.
+          </p>
+        ) : (
+          <div className="col" style={{ marginTop: 10, gap: 8 }}>
+            {templates.map((t) => (
+              <div
+                key={t.id}
+                className="row"
+                style={{ alignItems: "flex-start", gap: 8 }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600 }}>{t.name}</div>
+                  <div
+                    className="small muted"
+                    style={{
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                    title={t.text}
+                  >
+                    {t.kind} · {t.text || "(empty)"}
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn compact ghost"
+                    onClick={() => {
+                      const name = window.prompt(
+                        "Rename template",
+                        t.name
+                      );
+                      if (name === null) return;
+                      updateTemplate(t.id, { name });
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="btn compact ghost"
+                    onClick={() => {
+                      if (
+                        window.confirm(`Delete template “${t.name}”?`)
+                      ) {
+                        removeTemplate(t.id);
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="card">
         <strong>Your details</strong>

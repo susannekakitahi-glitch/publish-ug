@@ -145,6 +145,22 @@ export interface Client {
   zernioProfileId?: string;
 }
 
+/**
+ * A reusable caption + post-kind preset the user can save and re-apply on
+ * Compose. Stored on the device alongside posts/accounts via the same
+ * localStorage row. Per-tenant scoping isn't applied here intentionally:
+ * agency users often want the same caption pattern across clients (e.g.
+ * "Happy Friday from <brand>") so we keep templates global to the user.
+ */
+export interface PostTemplate {
+  id: string;
+  name: string;
+  text: string;
+  kind: ScheduledPost["kind"];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface User {
   name: string;
   phone: string;
@@ -168,6 +184,7 @@ export interface AppState {
   orgs: Org[];
   clients: Client[];
   currentClientId: string | null;
+  templates: PostTemplate[];
   signup: (
     name: string,
     phone: string,
@@ -226,6 +243,21 @@ export interface AppState {
   setUserZernioProfileId: (profileId: string) => void;
   /** Persist the Zernio profile ID for a specific client (Agency users). */
   setClientZernioProfileId: (clientId: string, profileId: string) => void;
+  /** Save a new caption template. Returns the persisted record so the
+   *  caller can surface its id (e.g. preselect after save). */
+  addTemplate: (t: {
+    name: string;
+    text: string;
+    kind: ScheduledPost["kind"];
+  }) => PostTemplate;
+  /** Update an existing template's name / text / kind. No-op if id is
+   *  unknown. updatedAt is stamped automatically. */
+  updateTemplate: (
+    id: string,
+    patch: Partial<Pick<PostTemplate, "name" | "text" | "kind">>
+  ) => void;
+  /** Delete a template. No-op if id is unknown. */
+  removeTemplate: (id: string) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -412,6 +444,7 @@ interface Persisted {
   accounts: ConnectedAccount[];
   clients: Client[];
   currentClientId: string | null;
+  templates: PostTemplate[];
 }
 
 const loadPersisted = (): Persisted | null => {
@@ -426,6 +459,7 @@ const loadPersisted = (): Persisted | null => {
       accounts: parsed.accounts ?? [],
       clients: parsed.clients ?? [],
       currentClientId: parsed.currentClientId ?? null,
+      templates: parsed.templates ?? [],
     };
   } catch {
     return null;
@@ -663,6 +697,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [currentClientId, setCurrentClientId] = useState<string | null>(
     persisted?.currentClientId ?? null
   );
+  const [templates, setTemplates] = useState<PostTemplate[]>(
+    persisted?.templates ?? []
+  );
   const [orgs] = useState<Org[]>(SEED_ORGS);
 
   useEffect(() => {
@@ -675,12 +712,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           accounts,
           clients,
           currentClientId,
+          templates,
         } as Persisted)
       );
     } catch {
       /* ignore */
     }
-  }, [user, posts, accounts, clients, currentClientId]);
+  }, [user, posts, accounts, clients, currentClientId, templates]);
 
   const api: AppState = useMemo(
     () => ({
@@ -703,9 +741,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           accountsQuota: q.accounts,
         });
         // Fresh signup starts from a clean slate: no stale accounts / posts /
-        // clients carried over from a previous user on the same device.
+        // clients / templates carried over from a previous user on the same
+        // device. Important on shared devices (common in Uganda) where the
+        // previous user's caption templates would otherwise leak through.
         setAccounts([]);
         setPosts([]);
+        setTemplates([]);
         if (plan === "agency") {
           const starter: Client = {
             id: "c" + rid(),
@@ -989,8 +1030,47 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           xs.map((c) => (c.id === clientId ? { ...c, zernioProfileId: profileId } : c))
         );
       },
+      templates,
+      addTemplate({ name, text, kind }) {
+        const now = new Date().toISOString();
+        const t: PostTemplate = {
+          id: "tpl_" + rid(),
+          name: name.trim() || "Untitled",
+          text,
+          kind,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setTemplates((xs) => [...xs, t]);
+        return t;
+      },
+      updateTemplate(id, patch) {
+        const now = new Date().toISOString();
+        setTemplates((xs) =>
+          xs.map((t) =>
+            t.id === id
+              ? {
+                  ...t,
+                  ...patch,
+                  // Don't let a rename collapse an empty string into ""
+                  // by accident — fall back to the existing name. Empty
+                  // text is fine (user might be saving a placeholder
+                  // template they'll fill in later).
+                  name:
+                    patch.name !== undefined
+                      ? patch.name.trim() || t.name
+                      : t.name,
+                  updatedAt: now,
+                }
+              : t
+          )
+        );
+      },
+      removeTemplate(id) {
+        setTemplates((xs) => xs.filter((t) => t.id !== id));
+      },
     }),
-    [user, posts, accounts, orgs, clients, currentClientId]
+    [user, posts, accounts, orgs, clients, currentClientId, templates]
   );
 
   return <AppContext.Provider value={api}>{children}</AppContext.Provider>;

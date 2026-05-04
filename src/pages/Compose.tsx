@@ -31,6 +31,8 @@ export default function Compose() {
     clients,
     currentClientId,
     selectClient,
+    templates,
+    addTemplate,
   } = useApp();
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
@@ -225,6 +227,38 @@ export default function Compose() {
     fileBlobs.current.clear();
     setMedia([]);
   };
+
+  // Apply a saved caption template to the in-progress draft. Switches
+  // the post kind to the template's kind (so the matching media slots
+  // re-render) and overwrites the caption with the template text. We
+  // intentionally don't merge with existing text because users
+  // expect Use template to feel like "start from this template".
+  function applyTemplate(id: string) {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    if (
+      text.trim() &&
+      !confirm(`Replace the current caption with “${t.name}”?`)
+    ) {
+      return;
+    }
+    if (t.kind !== kind) changeKind(t.kind);
+    setText(t.text);
+  }
+
+  // Persist the current caption + post kind as a reusable template.
+  // Disabled in the UI when the caption is empty so we never end up
+  // with blank rows in /settings.
+  function saveAsTemplate() {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const name = window.prompt(
+      "Template name",
+      trimmed.split(/\s+/).slice(0, 4).join(" ")
+    );
+    if (name === null) return; // user cancelled
+    addTemplate({ name, text, kind });
+  }
 
   const anyUploading = media.some((m) => m.uploading);
   const anyUploadFailed = media.some((m) => m.uploadError);
@@ -535,9 +569,58 @@ export default function Compose() {
         />
         <div className="row" style={{ marginTop: 8 }}>
           <span className="small muted">{text.length} chars</span>
-          <button className="btn compact ghost" onClick={enhance} disabled={aiThinking}>
-            {aiThinking ? "Thinking…" : "✨ AI enhance"}
-          </button>
+          <div className="row" style={{ gap: 6 }}>
+            <select
+              className="select compact"
+              aria-label="Use template"
+              value=""
+              onChange={(e) => {
+                const id = e.target.value;
+                if (!id) return;
+                applyTemplate(id);
+                // Reset back to placeholder so picking the same template
+                // twice in a row still fires onChange.
+                e.target.value = "";
+              }}
+              disabled={templates.length === 0}
+              title={
+                templates.length === 0
+                  ? "Save your first template below to reuse it later"
+                  : "Insert a saved caption"
+              }
+            >
+              <option value="">
+                {templates.length === 0
+                  ? "No templates yet"
+                  : "Use template…"}
+              </option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn compact ghost"
+              type="button"
+              onClick={saveAsTemplate}
+              disabled={!text.trim()}
+              title={
+                text.trim()
+                  ? "Save this caption as a reusable template"
+                  : "Type a caption first"
+              }
+            >
+              Save
+            </button>
+            <button
+              className="btn compact ghost"
+              onClick={enhance}
+              disabled={aiThinking}
+            >
+              {aiThinking ? "Thinking…" : "✨ AI enhance"}
+            </button>
+          </div>
         </div>
         {!aiEligible && (
           <p className="small muted" style={{ marginTop: 6 }}>
