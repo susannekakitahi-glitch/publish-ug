@@ -631,7 +631,9 @@ export default function Compose() {
                       key={m.name}
                       item={m}
                       index={i}
-                      showCoverBadge={kind === "carousel" && media.length > 1}
+                      showCoverBadge={
+                        kind === "carousel" && media.length > 1 && i === 0
+                      }
                       onRemove={() => removeMedia(i)}
                       onRetry={() => retryUpload(m.name)}
                     />
