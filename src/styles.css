@@ -982,3 +982,207 @@ p {
   font: inherit;
   text-decoration: underline;
 }
+
+/* --- Multi-platform preview (Compose page) ------------------------- */
+.pp-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  margin-top: 10px;
+  padding-bottom: 6px;
+  /* Snap so mobile users flick through one card at a time. */
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.pp-row::-webkit-scrollbar {
+  height: 6px;
+}
+.pp-row::-webkit-scrollbar-thumb {
+  background: #e2e4ea;
+  border-radius: 3px;
+}
+.pp {
+  position: relative;
+  flex: 0 0 auto;
+  width: 280px;
+  scroll-snap-align: start;
+}
+.pp-tag {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+.pp-card {
+  border: 1px solid #e7e9ee;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.pp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.pp-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffb457, #ff6a88);
+  color: #fff;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.pp-header-text {
+  min-width: 0;
+}
+.pp-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pp-sub {
+  color: #8a8f99;
+  font-size: 11px;
+}
+.pp-body {
+  padding: 6px 10px 10px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pp-media {
+  position: relative;
+  width: 100%;
+  background: #f3f4f7;
+  overflow: hidden;
+}
+.pp-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pp-media-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #9aa0ab;
+  font-size: 12px;
+  text-align: center;
+  padding: 8px;
+}
+.pp-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  pointer-events: none;
+}
+.pp-actions {
+  display: flex;
+  justify-content: space-around;
+  padding: 6px 8px;
+  border-top: 1px solid #eef0f4;
+  color: #6a7080;
+  font-size: 12px;
+}
+.pp-over {
+  margin-top: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #b00020;
+  background: #fdecea;
+  border-radius: 6px;
+  text-align: center;
+}
+
+/* Platform accent colors (subtle — no full brand takeover). */
+.pp-fb .pp-card { border-top: 3px solid #1877f2; }
+.pp-ig .pp-card {
+  border-top: 3px solid transparent;
+  background-image: linear-gradient(#fff, #fff),
+    linear-gradient(90deg, #f58529, #dd2a7b, #8134af, #515bd4);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+.pp-x .pp-card { border-top: 3px solid #0f1419; }
+.pp-li .pp-card { border-top: 3px solid #0a66c2; }
+.pp-tt .pp-card { border-top: 3px solid #000; background: #000; color: #fff; }
+.pp-tt .pp-card .pp-body { color: #fff; }
+.pp-yt .pp-card { border-top: 3px solid #ff0000; }
+.pp-wa .pp-card { border-top: 3px solid #25d366; background: #e7fce3; }
+.pp-tg .pp-card { border-top: 3px solid #2aabee; }
+
+/* IG: caption below media, square feed style */
+.pp-ig-actions { border-top: 0; padding: 6px 10px; font-size: 18px; justify-content: flex-start; gap: 14px; }
+.pp-ig-caption { padding-top: 0; }
+
+/* X: compact row, smaller icons */
+.pp-x-actions { border-top: 0; padding: 6px 10px; font-size: 14px; }
+
+/* TikTok: full-bleed vertical frame with overlays */
+.pp-tt-frame {
+  position: relative;
+  width: 100%;
+  background: #111;
+}
+.pp-tt-frame .pp-media { position: absolute; inset: 0; height: 100%; }
+.pp-tt-overlay {
+  position: absolute;
+  left: 8px;
+  bottom: 56px;
+  right: 48px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+.pp-tt-handle { font-weight: 700; font-size: 13px; }
+.pp-tt-caption { font-size: 12px; margin-top: 4px; }
+.pp-tt-rail {
+  position: absolute;
+  right: 6px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 18px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* WhatsApp: green bubble on a chat-ish background */
+.pp-wa .pp-card { padding: 10px; }
+.pp-wa-bubble {
+  background: #dcf8c6;
+  border-radius: 10px;
+  padding: 4px;
+  overflow: hidden;
+}
+.pp-wa-bubble .pp-body { padding: 6px 8px 0 8px; }
+.pp-wa-time {
+  font-size: 10px;
+  color: #667781;
+  text-align: right;
+  padding: 2px 8px 6px 0;
+}

@@ -16,6 +16,7 @@ import {
   formatBestTimeSlot,
   type BestTimeSlot,
 } from "../lib/bestTime";
+import { PlatformPreview } from "../components/PlatformPreview";
 
 type Kind = ScheduledPost["kind"];
 
@@ -773,6 +774,33 @@ export default function Compose() {
           </p>
         )}
       </div>
+
+      {platforms.length > 0 && (
+        <div className="card">
+          <div className="row" style={{ alignItems: "center" }}>
+            <strong>Preview</strong>
+            <span className="small muted">
+              {platforms.length} platform{platforms.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <p className="small muted" style={{ marginTop: 4 }}>
+            Approximate — real previews depend on each app's renderer.
+          </p>
+          <div className="pp-row">
+            {platforms.map((p) => (
+              <PlatformPreview
+                key={p}
+                platform={p}
+                text={text}
+                media={media}
+                kind={kind}
+                handle={handleByPlatform.get(p)}
+                youtubeUrl={ytUrl || undefined}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <button
         className="btn primary"
