@@ -371,6 +371,54 @@ export default function Schedule() {
       </div>
 
       {view === "queue" && (
+        <DndContext
+          sensors={sensors}
+          onDragStart={onDragStart}
+          onDragOver={(e) => {
+            const overId = e.over ? String(e.over.id) : null;
+            setDragOverDay(
+              overId && overId.startsWith("day-")
+                ? overId.slice("day-".length)
+                : null
+            );
+          }}
+          onDragCancel={() => {
+            setDraggingPostId(null);
+            setDragOverDay(null);
+          }}
+          onDragEnd={onDragEnd}
+        >
+          {queued.length > 0 && (
+            <div className="card">
+              <div className="row">
+                <strong>{cal.monthLabel}</strong>
+                <span className="small muted">
+                  {draggingPostId
+                    ? "Drop on a day to reschedule"
+                    : "Drag any post onto a day to reschedule"}
+                </span>
+              </div>
+              <div className="calendar" style={{ marginTop: 8 }}>
+                {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                  <div key={i} className="dow">
+                    {d}
+                  </div>
+                ))}
+                {cal.cells.map((c, i) => (
+                  <CalendarDayCell
+                    key={i}
+                    cell={c}
+                    isSelected={false}
+                    isDragTarget={!!draggingPostId && dragOverDay === c.key}
+                    onSelect={() => {
+                      setView("calendar");
+                      setSelectedDay(c.key);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         <div className="list">
           {queued.length === 0 && (
             <p className="muted small">Nothing in your queue yet.</p>
@@ -378,7 +426,11 @@ export default function Schedule() {
           {queued.map((p) => {
             const c = clientOf(p.clientId);
             return (
-              <div key={p.id} className="card">
+              <DraggableUpcomingCard
+                key={p.id}
+                postId={p.id}
+                isDragging={draggingPostId === p.id}
+              >
                 <div className="row">
                   <span className="pill">{p.kind}</span>
                   <span className="small muted">
@@ -439,6 +491,7 @@ export default function Schedule() {
                     {!p.zernioPostId && realOAuth && (
                       <button
                         className="btn compact primary"
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={() => pushPostToZernio(p.id)}
                       >
                         Push to Zernio
@@ -446,12 +499,14 @@ export default function Schedule() {
                     )}
                     <button
                       className="btn compact"
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => openEdit(p)}
                     >
                       Edit
                     </button>
                     <button
                       className="btn compact danger"
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => {
                         if (
                           confirm(
@@ -466,10 +521,39 @@ export default function Schedule() {
                     </button>
                   </div>
                 </div>
-              </div>
+              </DraggableUpcomingCard>
             );
           })}
         </div>
+          <DragOverlay dropAnimation={null}>
+            {draggingPostId
+              ? (() => {
+                  const p = queued.find((x) => x.id === draggingPostId);
+                  if (!p) return null;
+                  return (
+                    <div
+                      className="card"
+                      style={{
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                        opacity: 0.95,
+                        cursor: "grabbing",
+                      }}
+                    >
+                      <div className="row">
+                        <span className="pill">{p.kind}</span>
+                        <span className="small muted">
+                          {new Date(p.scheduledAt).toLocaleString()}
+                        </span>
+                      </div>
+                      <p style={{ marginTop: 8 }}>
+                        {p.text || "(media post)"}
+                      </p>
+                    </div>
+                  );
+                })()
+              : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {view === "failed" && (
@@ -1026,6 +1110,38 @@ function CalendarDayCell({
       {cell.postCount > 0 && (
         <span className="dot" title={`${cell.postCount} posts`} />
       )}
+    </div>
+  );
+}
+
+function DraggableUpcomingCard({
+  postId,
+  isDragging,
+  children,
+}: {
+  postId: string;
+  isDragging: boolean;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: `post-${postId}`,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className="card"
+      {...attributes}
+      {...listeners}
+      style={{
+        // Hide source while DragOverlay renders the preview so the
+        // list layout stays stable during a drag (same pattern as the
+        // Calendar tab).
+        opacity: isDragging ? 0 : 1,
+        cursor: "grab",
+        touchAction: "none",
+      }}
+    >
+      {children}
     </div>
   );
 }
