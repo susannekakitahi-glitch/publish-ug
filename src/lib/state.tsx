@@ -1364,12 +1364,34 @@ export function computeOccurrences(rule: RecurringRule): string[] {
   const countCap =
     rule.endBy.type === "count" ? Math.max(0, rule.endBy.count) : Infinity;
 
-  // Hard per-cadence safety cap so misconfigured rules never generate
-  // thousands of posts. Iteration walks day-by-day, so we need enough
-  // headroom to cover the deepest cadence the UI allows: monthly with
-  // count=24 needs ~24 * 31 = 744 iterations. 1100 gives comfortable
-  // headroom (covers ~3 years of daily posts too).
-  const SAFETY_ITERATIONS = 1100;
+  // Iteration walks day-by-day, so the cap has to scale with the
+  // deepest cadence the UI exposes (count up to 365). For monthly
+  // with count=365, worst case is ~365 * 31 = 11,315 days. For
+  // weekly with count=365 on 1 selected day, it's ~365 * 7 = 2,555.
+  // We pick the smallest iteration cap that covers the user's own
+  // request + a small cushion, then clamp to an absolute 20,000-day
+  // ceiling so a truly pathological rule (e.g. end date 100 years
+  // out) still can't flood localStorage.
+  const cadenceSpacing =
+    rule.cadence.type === "daily"
+      ? 1
+      : rule.cadence.type === "weekly"
+        ? Math.ceil(
+            7 / Math.max(1, rule.cadence.weekdays.length || 1)
+          )
+        : 31;
+  const requestedDays =
+    endDateCap !== null
+      ? Math.ceil(
+          (endDateCap.getTime() - start.getTime()) / (24 * 3600 * 1000)
+        ) + cadenceSpacing
+      : Number.isFinite(countCap)
+        ? countCap * cadenceSpacing + cadenceSpacing
+        : cadenceSpacing;
+  const SAFETY_ITERATIONS = Math.min(
+    20000,
+    Math.max(400, requestedDays)
+  );
 
   const out: string[] = [];
   const now = Date.now();

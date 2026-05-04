@@ -4,9 +4,11 @@ import {
   ALL_PLATFORMS,
   isAgency,
   scopeAccounts,
+  computeOccurrences,
   scopePosts,
   useApp,
   type Platform,
+  type RecurringRule,
   type MediaItem,
 } from "../lib/state";
 import type { ScheduledPost } from "../lib/state";
@@ -349,7 +351,7 @@ export default function Compose() {
       const pad = (n: number) => String(n).padStart(2, "0");
       const startDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
       const timeOfDay = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-      let cadence: Parameters<typeof addRecurringRule>[0]["cadence"];
+      let cadence: RecurringRule["cadence"];
       if (cadenceType === "daily") {
         cadence = { type: "daily" };
       } else if (cadenceType === "weekly") {
@@ -361,10 +363,42 @@ export default function Compose() {
           dayOfMonth: Math.min(28, monthlyDom || d.getDate()),
         };
       }
-      const endBy: Parameters<typeof addRecurringRule>[0]["endBy"] =
+      const endBy: RecurringRule["endBy"] =
         endMode === "count"
           ? { type: "count", count: Math.max(1, endCount) }
           : { type: "date", date: endDate };
+      // Pre-compute the occurrence count so we can quota-check before
+      // committing. Otherwise a 12-week rule could bulldoze a user
+      // whose quota is only 5 posts left for the month.
+      const previewRule: RecurringRule = {
+        id: "preview",
+        name: "",
+        text,
+        kind,
+        platforms,
+        media: media.length ? media : undefined,
+        cadence,
+        timeOfDay,
+        startDate,
+        endBy,
+        paused: false,
+        clientId: agency ? (currentClientId ?? undefined) : undefined,
+        createdAt: "",
+        updatedAt: "",
+      };
+      const previewCount = computeOccurrences(previewRule).length;
+      if (previewCount === 0) {
+        alert(
+          "No occurrences fit between the start date and the end condition. Check your Repeat settings."
+        );
+        return;
+      }
+      if (quotaLeft !== Infinity && previewCount > quotaLeft) {
+        alert(
+          `This series needs ${previewCount} posts but you only have ${quotaLeft} left this month. Reduce the count, shorten the end date, or top up in Billing.`
+        );
+        return;
+      }
       const { scheduled } = addRecurringRule({
         text: kind === "youtube" ? `${text}\n${ytUrl}` : text,
         kind,
@@ -377,8 +411,10 @@ export default function Compose() {
         clientId: agency ? (currentClientId ?? undefined) : undefined,
       });
       if (scheduled === 0) {
+        // Defensive — previewCount > 0 above but state.tsx may still
+        // skip past occurrences if the user dawdled on the form.
         alert(
-          "No occurrences fit between the start date and the end condition. Check your Repeat settings."
+          "All occurrences landed in the past. Adjust the start date or time."
         );
         return;
       }
