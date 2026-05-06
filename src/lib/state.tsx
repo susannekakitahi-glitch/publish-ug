@@ -28,6 +28,10 @@ export type Platform =
   | "linkedin"
   | "tiktok"
   | "youtube"
+  | "pinterest"
+  | "threads"
+  | "reddit"
+  | "bluesky"
   | "whatsapp"
   | "telegram";
 
@@ -38,6 +42,10 @@ export const ALL_PLATFORMS: { id: Platform; label: string; ico: string }[] = [
   { id: "linkedin", label: "LinkedIn", ico: "IN" },
   { id: "tiktok", label: "TikTok", ico: "TT" },
   { id: "youtube", label: "YouTube", ico: "YT" },
+  { id: "pinterest", label: "Pinterest", ico: "PI" },
+  { id: "threads", label: "Threads", ico: "TH" },
+  { id: "reddit", label: "Reddit", ico: "RD" },
+  { id: "bluesky", label: "Bluesky", ico: "BS" },
   { id: "whatsapp", label: "WhatsApp", ico: "WA" },
   { id: "telegram", label: "Telegram", ico: "TG" },
 ];

@@ -10,6 +10,10 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   linkedin: "LinkedIn",
   tiktok: "TikTok",
   youtube: "YouTube",
+  pinterest: "Pinterest",
+  threads: "Threads",
+  reddit: "Reddit",
+  bluesky: "Bluesky",
   whatsapp: "WhatsApp",
   telegram: "Telegram",
 };
@@ -22,6 +26,10 @@ const shortPlatform = (p: Platform) => {
     linkedin: "IN",
     tiktok: "TT",
     youtube: "YT",
+    pinterest: "PI",
+    threads: "TH",
+    reddit: "RD",
+    bluesky: "BS",
     whatsapp: "WA",
     telegram: "TG",
   };

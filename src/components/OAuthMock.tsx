@@ -125,6 +125,64 @@ const SPECS: Record<Platform, PlatformSpec> = {
     ],
     continueLabel: "I've added the bot",
   },
+  pinterest: {
+    brand: "Pinterest",
+    color: "#E60023",
+    onColor: "#ffffff",
+    handlePlaceholder: "Your Pinterest business account",
+    handleLabel: "Connect a Pinterest business account",
+    permissionsTitle: "Posta will be able to:",
+    permissions: [
+      "Publish Pins to your boards",
+      "Read profile + pin engagement",
+    ],
+    continueLabel: "Authorize",
+    disclaimer:
+      "Requires a Pinterest business account; converting from a personal account is free.",
+  },
+  threads: {
+    brand: "Threads",
+    color: "#000000",
+    onColor: "#ffffff",
+    handlePlaceholder: "@your_threads_handle",
+    handleLabel: "Connect your Threads account",
+    permissionsTitle: "Posta would like to:",
+    permissions: [
+      "Publish Threads posts on your behalf",
+      "Read profile + insights",
+    ],
+    continueLabel: "Authorize",
+    disclaimer:
+      "Threads accounts are linked through Instagram. Connecting Threads also connects the matching IG account.",
+  },
+  reddit: {
+    brand: "Reddit",
+    color: "#FF4500",
+    onColor: "#ffffff",
+    handlePlaceholder: "u/yourname or r/yoursubreddit",
+    handleLabel: "Authorize this app",
+    permissionsTitle: "Posta will be able to:",
+    permissions: [
+      "Submit posts to subreddits you moderate",
+      "Read your profile + karma",
+    ],
+    continueLabel: "Allow",
+  },
+  bluesky: {
+    brand: "Bluesky",
+    color: "#0085FF",
+    onColor: "#ffffff",
+    handlePlaceholder: "yourhandle.bsky.social",
+    handleLabel: "Sign in with an app password",
+    permissionsTitle: "Posta will be able to:",
+    permissions: [
+      "Post on your Bluesky account using an app password",
+      "Read your profile",
+    ],
+    continueLabel: "Connect",
+    disclaimer:
+      "Bluesky uses app passwords (not OAuth). Generate one in Bluesky settings → App Passwords, then paste it here.",
+  },
 };
 
 export function OAuthMock({
