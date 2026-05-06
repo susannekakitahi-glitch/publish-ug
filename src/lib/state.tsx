@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { PlanId } from "./pricing";
+import { getPlan, type PlanId } from "./pricing";
 import {
   deletePost,
   getPostAnalytics,
@@ -297,6 +297,10 @@ export interface AppState {
    *  mock mode (no zernioPostId to poll). */
   syncPostStatuses: () => Promise<void>;
   topUpPosts: (count: number) => void;
+  /** Permanently raise this user's connected-account cap by `count`. Called
+   *  after a MoMo-paid account top-up pack succeeds. No-op for users on an
+   *  unlimited plan. */
+  topUpAccounts: (count: number) => void;
   lookupOrg: (code: string) => Org | undefined;
   setPlan: (plan: PlanId, billingCycle?: "monthly" | "annual") => void;
   addClient: (name: string) => Client;
@@ -360,8 +364,8 @@ const SEED_ORGS: Org[] = [
     inviteCode: "ELYON2026",
     memberCount: 742,
     seatLimit: 1000,
-    monthlyUgx: 5_000,
-    annualUgx: 48_000,
+    monthlyUgx: 15_000,
+    annualUgx: 144_000,
     trendingPosts: [
       {
         id: "t1",
@@ -435,8 +439,8 @@ const SEED_ORGS: Org[] = [
     inviteCode: "EQUITY-SME",
     memberCount: 318,
     seatLimit: 1000,
-    monthlyUgx: 5_000,
-    annualUgx: 48_000,
+    monthlyUgx: 15_000,
+    annualUgx: 144_000,
     trendingPosts: [
       {
         id: "t1",
@@ -509,25 +513,20 @@ const SEED_POST_IDS = new Set(["p1", "p2", "p3"]);
 const dropSeedPosts = (posts: ScheduledPost[]): ScheduledPost[] =>
   posts.filter((p) => !SEED_POST_IDS.has(p.id));
 
+/**
+ * Quota shape for a plan. We read straight off the PLANS table so the
+ * pricing page and the runtime state can never drift out of sync.
+ */
 const quotasFor = (
   plan: PlanId
 ): { posts: number | "unlimited"; accounts: number | "unlimited" } => {
-  switch (plan) {
-    case "free":
-      return { posts: 5, accounts: 1 };
-    case "starter":
-      return { posts: 15, accounts: 2 };
-    case "business":
-      return { posts: 50, accounts: 5 };
-    case "agency":
-      return { posts: "unlimited", accounts: 15 };
-    case "org":
-      return { posts: 50, accounts: 5 };
-  }
+  const p = getPlan(plan);
+  return { posts: p.monthlyPosts, accounts: p.socialAccounts };
 };
 
-const LS_KEY = "posta-ug:v2";
+const LS_KEY = "posta-ug:v3";
 const LS_KEY_LEGACY = "posta-ug:v1";
+const LS_KEY_V2 = "posta-ug:v2";
 
 interface Persisted {
   user: User | null;
@@ -541,12 +540,42 @@ interface Persisted {
 
 const loadPersisted = (): Persisted | null => {
   try {
-    const raw =
-      localStorage.getItem(LS_KEY) ?? localStorage.getItem(LS_KEY_LEGACY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Persisted>;
+    const v3 = localStorage.getItem(LS_KEY);
+    if (v3) {
+      const parsed = JSON.parse(v3) as Partial<Persisted>;
+      return {
+        user: parsed.user ?? null,
+        posts: parsed.posts ?? [],
+        accounts: parsed.accounts ?? [],
+        clients: parsed.clients ?? [],
+        currentClientId: parsed.currentClientId ?? null,
+        templates: parsed.templates ?? [],
+        recurringRules: parsed.recurringRules ?? [],
+      };
+    }
+    // v2 → v3 migration: account caps shrank for several plans
+    // (business 5→3, agency 15→8, org 5→2) when we re-costed Posta
+    // against Zernio's per-account model. Existing localStorage rows
+    // still carry the old, higher accountsQuota/postsQuota. Clamp
+    // those to the *new* plan base so the topUpAccounts delta logic in
+    // setPlan doesn't fabricate phantom top-up slots later. Anyone
+    // who genuinely had a paid top-up on the old model gets reset to
+    // base — acceptable given top-up packs only become a thing in
+    // this same release.
+    const v2 = localStorage.getItem(LS_KEY_V2) ?? localStorage.getItem(LS_KEY_LEGACY);
+    if (!v2) return null;
+    const parsed = JSON.parse(v2) as Partial<Persisted>;
+    let user = parsed.user ?? null;
+    if (user) {
+      const base = quotasFor(user.plan);
+      user = {
+        ...user,
+        postsQuota: base.posts,
+        accountsQuota: base.accounts,
+      };
+    }
     return {
-      user: parsed.user ?? null,
+      user,
       posts: parsed.posts ?? [],
       accounts: parsed.accounts ?? [],
       clients: parsed.clients ?? [],
@@ -1078,6 +1107,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           return { ...u, postsQuota: (u.postsQuota as number) + count };
         });
       },
+      topUpAccounts(count) {
+        setUser((u) => {
+          if (!u) return u;
+          if (u.accountsQuota === "unlimited") return u;
+          return { ...u, accountsQuota: (u.accountsQuota as number) + count };
+        });
+      },
       lookupOrg(code) {
         const c = code.trim().toUpperCase();
         return orgs.find((o) => o.inviteCode.toUpperCase() === c);
@@ -1085,13 +1121,37 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setPlan(plan, billingCycle = "monthly") {
         setUser((u) => {
           if (!u) return u;
-          const q = quotasFor(plan);
+          const next = quotasFor(plan);
+          const prev = quotasFor(u.plan);
+          // Preserve any paid top-ups across a plan change. Without this,
+          // a Starter user who bought a +5 account top-up (UGX 110k/mo)
+          // and then upgrades to Business has their quota silently
+          // reset to the new base — losing slots they're still paying
+          // for. We compute the delta between the user's current quota
+          // and the *old* plan's base, then layer it on top of the
+          // *new* plan's base. "unlimited" on either side short-circuits
+          // to the new value.
+          const carryQuota = (
+            current: number | "unlimited",
+            oldBase: number | "unlimited",
+            newBase: number | "unlimited"
+          ): number | "unlimited" => {
+            if (newBase === "unlimited") return "unlimited";
+            if (current === "unlimited" || oldBase === "unlimited")
+              return newBase;
+            const delta = Math.max(0, current - oldBase);
+            return newBase + delta;
+          };
           return {
             ...u,
             plan,
             billingCycle,
-            postsQuota: q.posts,
-            accountsQuota: q.accounts,
+            postsQuota: carryQuota(u.postsQuota, prev.posts, next.posts),
+            accountsQuota: carryQuota(
+              u.accountsQuota,
+              prev.accounts,
+              next.accounts
+            ),
           };
         });
       },

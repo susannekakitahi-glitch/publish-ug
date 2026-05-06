@@ -405,6 +405,47 @@ export default function Onboarding() {
             ? `${accounts.length} connected for this client · ${totalUsed} of ${cap === Infinity ? "unlimited" : cap} total`
             : `${accounts.length} of ${cap === Infinity ? "unlimited" : cap} connected`}
         </div>
+        {cap !== Infinity && (
+          <div
+            className="quota-bar"
+            aria-hidden
+            style={{ marginTop: 8 }}
+            title={`${totalUsed} of ${cap} connected accounts used`}
+          >
+            <div
+              className="quota-bar-fill"
+              style={{
+                width: `${Math.min(100, (totalUsed / cap) * 100)}%`,
+                background:
+                  totalUsed >= cap
+                    ? "var(--bad)"
+                    : "linear-gradient(90deg, var(--accent), var(--good))",
+              }}
+            />
+          </div>
+        )}
+        {cap !== Infinity && totalUsed >= cap && (
+          <div
+            className="row"
+            style={{
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 10,
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.32)",
+              gap: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            <div className="small" style={{ color: "#92400e" }}>
+              You've connected the maximum {cap} account
+              {cap === 1 ? "" : "s"} for your plan.
+            </div>
+            <Link to="/settings" className="btn compact primary">
+              Top up or upgrade
+            </Link>
+          </div>
+        )}
         <div className="platforms" style={{ marginTop: 10 }}>
           {ALL_PLATFORMS.map((p) => {
             const isConn = connected.has(p.id);
