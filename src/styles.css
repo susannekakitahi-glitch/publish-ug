@@ -1,15 +1,21 @@
 :root {
-  --bg: #0b1f17;
-  --panel: #102a20;
-  --panel-2: #164032;
-  --ink: #f4efe2;
-  --muted: #9ab0a6;
-  --line: rgba(244, 239, 226, 0.1);
+  /* Light theme — white canvas, slate ink, yellow accent. Inspired by
+   * Linear / Stripe / Buffer: pure-white surfaces, a slightly cooler
+   * light-grey for raised panels and the bottom nav, hairline slate
+   * borders, and a 3-tier slate ink scale. The Posta yellow stays as
+   * the one strong brand accent.
+   */
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f7f8fa;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: rgba(15, 23, 42, 0.1);
   --accent: #f5c842;
   --accent-ink: #1a1405;
-  --good: #39ff6a;
-  --warn: #ff7a3b;
-  --bad: #ff5b5b;
+  --good: #10b981;
+  --warn: #f59e0b;
+  --bad: #ef4444;
   --radius: 14px;
   --max: 480px;
 }
@@ -60,7 +66,7 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: rgba(11, 31, 23, 0.9);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: saturate(1.2) blur(6px);
   border-bottom: 1px solid var(--line);
 }
@@ -137,7 +143,7 @@ p {
 .btn.danger {
   background: transparent;
   color: var(--bad);
-  border-color: rgba(255, 91, 91, 0.3);
+  border-color: rgba(239, 68, 68, 0.32);
 }
 .btn.compact {
   padding: 8px 12px;
@@ -178,28 +184,28 @@ p {
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(245, 200, 66, 0.12);
-  color: var(--accent);
+  background: #fff8e1;
+  color: #7a5b00;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  border: 1px solid rgba(245, 200, 66, 0.25);
+  border: 1px solid rgba(245, 200, 66, 0.55);
 }
 .pill.good {
-  background: rgba(57, 255, 106, 0.12);
-  color: var(--good);
-  border-color: rgba(57, 255, 106, 0.25);
+  background: #ecfdf5;
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.4);
 }
 .pill.warn {
-  background: rgba(255, 122, 59, 0.15);
-  color: var(--warn);
-  border-color: rgba(255, 122, 59, 0.3);
+  background: #fffbeb;
+  color: #92400e;
+  border-color: rgba(245, 158, 11, 0.42);
 }
 .pill.bad {
-  background: rgba(255, 91, 91, 0.12);
-  color: var(--bad);
-  border-color: rgba(255, 91, 91, 0.3);
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .input,
@@ -294,9 +300,10 @@ p {
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   max-width: var(--max);
   margin: 0 auto;
-  background: rgba(16, 42, 32, 0.95);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
   border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.04);
   padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
 }
 .nav a {
@@ -304,7 +311,8 @@ p {
   font-size: 11px;
   color: var(--muted);
   padding: 6px 2px;
-  border-radius: 8px;
+  border-radius: 10px;
+  font-weight: 500;
 }
 .nav a .ico {
   display: block;
@@ -312,7 +320,12 @@ p {
   margin-bottom: 2px;
 }
 .nav a.active {
-  color: var(--accent);
+  color: var(--ink);
+  font-weight: 700;
+  background: rgba(245, 200, 66, 0.18);
+}
+.nav a.active .ico {
+  color: #b45309;
 }
 
 .kpi-grid {
@@ -808,12 +821,12 @@ p {
   flex-shrink: 0;
 }
 .delta.pos {
-  background: rgba(57, 255, 106, 0.12);
-  color: var(--good, #39ff6a);
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--good, #10b981);
 }
 .delta.neg {
-  background: rgba(255, 91, 138, 0.12);
-  color: var(--bad, #ff5b8a);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--bad, #ef4444);
 }
 
 /* Mock OAuth consent popup */
