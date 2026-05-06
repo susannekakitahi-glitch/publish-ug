@@ -32,6 +32,9 @@ export type Platform =
   | "threads"
   | "reddit"
   | "bluesky"
+  | "snapchat"
+  | "discord"
+  | "gmb"
   | "whatsapp"
   | "telegram";
 
@@ -46,6 +49,9 @@ export const ALL_PLATFORMS: { id: Platform; label: string; ico: string }[] = [
   { id: "threads", label: "Threads", ico: "TH" },
   { id: "reddit", label: "Reddit", ico: "RD" },
   { id: "bluesky", label: "Bluesky", ico: "BS" },
+  { id: "snapchat", label: "Snapchat", ico: "SC" },
+  { id: "discord", label: "Discord", ico: "DC" },
+  { id: "gmb", label: "Google Business", ico: "GB" },
   { id: "whatsapp", label: "WhatsApp", ico: "WA" },
   { id: "telegram", label: "Telegram", ico: "TG" },
 ];

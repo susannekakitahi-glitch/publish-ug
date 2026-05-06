@@ -48,6 +48,14 @@ const CAPTION_LIMIT: Partial<Record<Platform, number>> = {
   // misleadingly flag.
   reddit: 40_000,
   bluesky: 300,
+  // Snapchat snap captions are short — the platform truncates around
+  // 80 characters in stories. We pick 250 to allow for a Spotlight-style
+  // longer caption while still flagging genuinely long ones.
+  snapchat: 250,
+  // Discord free-tier message limit is 2000.
+  discord: 2000,
+  // Google Business Update posts cap at 1500.
+  gmb: 1500,
 };
 
 function firstImage(media: MediaItem[]): MediaItem | undefined {
@@ -94,6 +102,12 @@ function displayHandle(p: Platform, handle?: string): string {
       return "r/yoursubreddit";
     case "bluesky":
       return "yourhandle.bsky.social";
+    case "snapchat":
+      return "yourhandle";
+    case "discord":
+      return "#general";
+    case "gmb":
+      return "Your Business";
   }
 }
 
@@ -114,6 +128,9 @@ export function PlatformPreview(props: PlatformPreviewProps) {
       {platform === "threads" && <ThreadsCard {...props} />}
       {platform === "reddit" && <RedditCard {...props} />}
       {platform === "bluesky" && <BlueskyCard {...props} />}
+      {platform === "snapchat" && <SnapchatCard {...props} />}
+      {platform === "discord" && <DiscordCard {...props} />}
+      {platform === "gmb" && <GmbCard {...props} />}
       <OverflowPill platform={platform} text={props.text} />
     </div>
   );
@@ -413,6 +430,80 @@ function RedditCard({ text, handle, media, kind }: PlatformPreviewProps) {
 // Bluesky's UI is close to Twitter/X but each post slices to 300
 // characters (we already enforce that via CAPTION_LIMIT) and there's
 // no retweet glyph, just reply / repost / like.
+// Snapchat: vertical 9:16 frame like TikTok. Caption sits as an
+// overlay near the bottom; ghost handle on top.
+function SnapchatCard({ text, handle, media, kind }: PlatformPreviewProps) {
+  const h = displayHandle("snapchat", handle);
+  return (
+    <div className="pp-card pp-sc">
+      <div className="pp-tt-frame" style={{ aspectRatio: "9/16" }}>
+        <MediaSlot media={media} kind={kind} aspect="9/16" />
+        <div
+          className="pp-tt-overlay"
+          style={{ left: 8, right: 8, top: 8, bottom: "auto" }}
+        >
+          <div className="pp-tt-handle">
+            <span style={{ marginRight: 4 }}>👻</span>
+            {h}
+          </div>
+        </div>
+        {text && (
+          <div className="pp-tt-overlay">
+            <div className="pp-tt-caption">{text}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Discord: looks like a single message in a #channel. The dark theme
+// + monospace channel header makes it instantly recognisable.
+function DiscordCard({ text, handle, media, kind }: PlatformPreviewProps) {
+  const channel = displayHandle("discord", handle);
+  return (
+    <div className="pp-card pp-dc">
+      <div className="pp-discord-channel"># {channel.replace(/^#/, "")}</div>
+      <div className="pp-header">
+        <Avatar letter="P" />
+        <div className="pp-header-text">
+          <div className="pp-name">Posta Bot</div>
+          <div className="pp-sub">Today at {nowTime()}</div>
+        </div>
+      </div>
+      {text && <div className="pp-body">{text}</div>}
+      <MediaSlot media={media} kind={kind} aspect="16/9" />
+    </div>
+  );
+}
+
+// Google Business profile update: business name + pin in the header,
+// caption as the post body, optional photo.
+function GmbCard({ text, handle, media, kind }: PlatformPreviewProps) {
+  const business = displayHandle("gmb", handle);
+  return (
+    <div className="pp-card pp-gb">
+      <div className="pp-gmb-header">
+        <span className="pp-gmb-pin" aria-hidden />
+        <strong>{business}</strong>
+      </div>
+      <div className="pp-sub" style={{ padding: "0 10px" }}>
+        Posted just now · from Google Business Profile
+      </div>
+      {text && <div className="pp-body">{text}</div>}
+      <MediaSlot media={media} kind={kind} aspect="4/3" />
+    </div>
+  );
+}
+
+function nowTime() {
+  const d = new Date();
+  const h = d.getHours() % 12 || 12;
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const ap = d.getHours() >= 12 ? "PM" : "AM";
+  return `${h}:${m} ${ap}`;
+}
+
 function BlueskyCard({ text, handle, media, kind }: PlatformPreviewProps) {
   const h = displayHandle("bluesky", handle);
   const sliced = text.length > 300 ? text.slice(0, 300) + "…" : text;

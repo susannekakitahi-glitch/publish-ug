@@ -183,6 +183,51 @@ const SPECS: Record<Platform, PlatformSpec> = {
     disclaimer:
       "Bluesky uses app passwords (not OAuth). Generate one in Bluesky settings → App Passwords, then paste it here.",
   },
+  snapchat: {
+    brand: "Snapchat",
+    color: "#FFFC00",
+    onColor: "#000000",
+    handlePlaceholder: "Your Snapchat username",
+    handleLabel: "Sign in to Snapchat",
+    permissionsTitle: "Posta would like to:",
+    permissions: [
+      "Publish Stories and Spotlight content on your behalf",
+      "Read profile + view counts",
+    ],
+    continueLabel: "Authorize",
+    disclaimer:
+      "Snapchat publishing uses the Creator Kit. Some content types (paid Spotlight) need a verified Creator account.",
+  },
+  discord: {
+    brand: "Discord",
+    color: "#5865F2",
+    onColor: "#ffffff",
+    handlePlaceholder: "#channel-name",
+    handleLabel: "Add Posta to a Discord server",
+    permissionsTitle: "Posta will need:",
+    permissions: [
+      "Send Messages permission in the target channel",
+      "Embed Links + Attach Files (for media posts)",
+    ],
+    continueLabel: "Authorize",
+    disclaimer:
+      "Discord posts go to a specific channel in a server you administer. Pick the channel after authorizing.",
+  },
+  gmb: {
+    brand: "Google Business",
+    color: "#4285F4",
+    onColor: "#ffffff",
+    handlePlaceholder: "Your business name",
+    handleLabel: "Sign in with Google",
+    permissionsTitle: "Posta will be able to:",
+    permissions: [
+      "Publish Updates and Offers on your Business Profile",
+      "Read insights for your locations",
+    ],
+    continueLabel: "Continue",
+    disclaimer:
+      "Google Business posts are tied to a specific location. If you manage multiple locations you'll pick which one Posta posts to.",
+  },
 };
 
 export function OAuthMock({
