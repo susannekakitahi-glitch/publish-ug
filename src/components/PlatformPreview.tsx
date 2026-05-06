@@ -41,6 +41,13 @@ const CAPTION_LIMIT: Partial<Record<Platform, number>> = {
   whatsapp: 4096,
   telegram: 4096,
   youtube: 5000,
+  pinterest: 500,
+  threads: 500,
+  // Reddit titles are 300 but Posta sends caption as the body, which
+  // allows up to 40k. Use the body limit so longform copy doesn't
+  // misleadingly flag.
+  reddit: 40_000,
+  bluesky: 300,
 };
 
 function firstImage(media: MediaItem[]): MediaItem | undefined {
@@ -79,6 +86,14 @@ function displayHandle(p: Platform, handle?: string): string {
       return "Status";
     case "telegram":
       return "Your Channel";
+    case "pinterest":
+      return "Your Board";
+    case "threads":
+      return "yourhandle";
+    case "reddit":
+      return "r/yoursubreddit";
+    case "bluesky":
+      return "yourhandle.bsky.social";
   }
 }
 
@@ -95,6 +110,10 @@ export function PlatformPreview(props: PlatformPreviewProps) {
       {platform === "youtube" && <YouTubeCard {...props} />}
       {platform === "whatsapp" && <WhatsAppCard {...props} />}
       {platform === "telegram" && <TelegramCard {...props} />}
+      {platform === "pinterest" && <PinterestCard {...props} />}
+      {platform === "threads" && <ThreadsCard {...props} />}
+      {platform === "reddit" && <RedditCard {...props} />}
+      {platform === "bluesky" && <BlueskyCard {...props} />}
       <OverflowPill platform={platform} text={props.text} />
     </div>
   );
@@ -307,6 +326,113 @@ function TelegramCard({ text, handle, media, kind }: PlatformPreviewProps) {
         <MediaSlot media={media} kind={kind} aspect="4/3" />
       )}
       {text && <div className="pp-body">{text}</div>}
+    </div>
+  );
+}
+
+// Pinterest renders a tall-rectangle pin. Caption sits under as the
+// pin description; the first line of the caption is treated as the
+// title (shown bold) — that mirrors how Pinterest's UI puts emphasis
+// on the first line.
+function PinterestCard({ text, handle, media, kind }: PlatformPreviewProps) {
+  const h = displayHandle("pinterest", handle);
+  const [firstLine, ...rest] = text.split("\n");
+  const body = rest.join("\n").trim();
+  return (
+    <div className="pp-card pp-pin">
+      <MediaSlot media={media} kind={kind} aspect="2/3" />
+      {firstLine && <div className="pp-name pp-pin-title">{firstLine}</div>}
+      {body && <div className="pp-body">{body}</div>}
+      <div className="pp-header" style={{ marginTop: 6 }}>
+        <Avatar letter={h[0]} />
+        <div className="pp-header-text">
+          <div className="pp-name">{h}</div>
+          <div className="pp-sub">Saved · just now</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Threads is structurally close to Twitter/X but with no character
+// counter and the @handle on its own line under the display name.
+function ThreadsCard({ text, handle, media, kind }: PlatformPreviewProps) {
+  const h = displayHandle("threads", handle);
+  return (
+    <div className="pp-card pp-th">
+      <div className="pp-header">
+        <Avatar letter={h[0]} />
+        <div className="pp-header-text">
+          <div className="pp-name">@{h.replace(/\s+/g, "").toLowerCase()}</div>
+          <div className="pp-sub">now</div>
+        </div>
+      </div>
+      {text && <div className="pp-body">{text}</div>}
+      <MediaSlot media={media} kind={kind} aspect="4/5" />
+      <div className="pp-actions pp-x-actions">
+        <span>♡</span>
+        <span>💬</span>
+        <span>🔁</span>
+        <span>↗</span>
+      </div>
+    </div>
+  );
+}
+
+// Reddit shows the subreddit + a bold title (line 1 of caption) +
+// optional body + media. Up/down arrows on the left mirror the desktop
+// layout so the preview reads as Reddit at a glance.
+function RedditCard({ text, handle, media, kind }: PlatformPreviewProps) {
+  const sub = displayHandle("reddit", handle);
+  const [title, ...rest] = text.split("\n");
+  const body = rest.join("\n").trim();
+  return (
+    <div className="pp-card pp-rd">
+      <div className="pp-rd-row">
+        <div className="pp-rd-votes">
+          <span>▲</span>
+          <span className="pp-sub">1</span>
+          <span>▼</span>
+        </div>
+        <div className="pp-rd-content">
+          <div className="pp-sub">{sub} · Posted by u/you · just now</div>
+          {title && <div className="pp-name pp-rd-title">{title}</div>}
+          {body && <div className="pp-body">{body}</div>}
+          <MediaSlot media={media} kind={kind} aspect="16/9" />
+          <div className="pp-actions">
+            <span>💬 0 Comments</span>
+            <span>↗ Share</span>
+            <span>⤴ Save</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Bluesky's UI is close to Twitter/X but each post slices to 300
+// characters (we already enforce that via CAPTION_LIMIT) and there's
+// no retweet glyph, just reply / repost / like.
+function BlueskyCard({ text, handle, media, kind }: PlatformPreviewProps) {
+  const h = displayHandle("bluesky", handle);
+  const sliced = text.length > 300 ? text.slice(0, 300) + "…" : text;
+  return (
+    <div className="pp-card pp-bs">
+      <div className="pp-header">
+        <Avatar letter={h[0]} />
+        <div className="pp-header-text">
+          <div className="pp-name">
+            <span className="pp-sub">@{h} · now</span>
+          </div>
+        </div>
+      </div>
+      {sliced && <div className="pp-body">{sliced}</div>}
+      <MediaSlot media={media} kind={kind} aspect="16/9" />
+      <div className="pp-actions pp-x-actions">
+        <span>💬</span>
+        <span>🔁</span>
+        <span>♡</span>
+      </div>
     </div>
   );
 }

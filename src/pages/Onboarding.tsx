@@ -206,6 +206,10 @@ export default function Onboarding() {
           linkedin: "linkedin",
           tiktok: "tiktok",
           youtube: "youtube",
+          pinterest: "pinterest",
+          threads: "threads",
+          reddit: "reddit",
+          bluesky: "bluesky",
           whatsapp: "whatsapp",
           telegram: "telegram",
         };
@@ -474,6 +478,10 @@ export default function Onboarding() {
                           linkedin: "linkedin",
                           tiktok: "tiktok",
                           youtube: "youtube",
+                          pinterest: "pinterest",
+                          threads: "threads",
+                          reddit: "reddit",
+                          bluesky: "bluesky",
                           whatsapp: "whatsapp",
                           telegram: "telegram",
                         };
@@ -559,6 +567,10 @@ export default function Onboarding() {
                           linkedin: "linkedin",
                           tiktok: "tiktok",
                           youtube: "youtube",
+                          pinterest: "pinterest",
+                          threads: "threads",
+                          reddit: "reddit",
+                          bluesky: "bluesky",
                           whatsapp: "whatsapp",
                           telegram: "telegram",
                         } as Record<string, Platform>)[a.platform] ?? "facebook"
@@ -593,6 +605,10 @@ export default function Onboarding() {
                           linkedin: "linkedin",
                           tiktok: "tiktok",
                           youtube: "youtube",
+                          pinterest: "pinterest",
+                          threads: "threads",
+                          reddit: "reddit",
+                          bluesky: "bluesky",
                           whatsapp: "whatsapp",
                           telegram: "telegram",
                         };
@@ -681,6 +697,9 @@ const SIGN_OUT_URLS: Partial<Record<Platform, string>> = {
   x: "https://twitter.com/logout",
   linkedin: "https://www.linkedin.com/m/logout/",
   tiktok: "https://www.tiktok.com/logout",
+  pinterest: "https://www.pinterest.com/logout/",
+  threads: "https://www.threads.net/logout",
+  reddit: "https://www.reddit.com/logout",
 };
 
 const PLATFORM_LABEL: Record<Platform, string> = {
@@ -690,6 +709,10 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   linkedin: "LinkedIn",
   tiktok: "TikTok",
   youtube: "YouTube / Google",
+  pinterest: "Pinterest",
+  threads: "Threads",
+  reddit: "Reddit",
+  bluesky: "Bluesky",
   whatsapp: "WhatsApp",
   telegram: "Telegram",
 };

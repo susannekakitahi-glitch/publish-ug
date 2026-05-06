@@ -53,7 +53,7 @@ export default function Landing() {
           </div>
           <div className="landing-proof">
             <span className="landing-proof-dot" />
-            Publishes to 8 networks · Multi-account · Agency-ready
+            Publishes to 12 networks · Multi-account · Agency-ready
           </div>
         </div>
 
@@ -66,6 +66,10 @@ export default function Landing() {
               ["linkedin", "LinkedIn"],
               ["tiktok", "TikTok"],
               ["youtube", "YouTube"],
+              ["pinterest", "Pinterest"],
+              ["threads", "Threads"],
+              ["reddit", "Reddit"],
+              ["bluesky", "Bluesky"],
               ["whatsapp", "WhatsApp"],
               ["telegram", "Telegram"],
             ] as const
@@ -241,7 +245,7 @@ export default function Landing() {
           </Link>
         </div>
         <p className="small muted" style={{ marginTop: 12 }}>
-          Works on any phone or laptop. No app install. 8 social networks
+          Works on any phone or laptop. No app install. 12 social networks
           supported today — more rolling in.
         </p>
       </section>

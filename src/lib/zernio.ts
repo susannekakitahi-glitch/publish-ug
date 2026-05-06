@@ -20,6 +20,10 @@ export const ZERNIO_PLATFORM: Record<Platform, string> = {
   linkedin: "linkedin",
   tiktok: "tiktok",
   youtube: "youtube",
+  pinterest: "pinterest",
+  threads: "threads",
+  reddit: "reddit",
+  bluesky: "bluesky",
   whatsapp: "whatsapp",
   telegram: "telegram",
 };
