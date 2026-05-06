@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { PlanId } from "./pricing";
+import { getPlan, type PlanId } from "./pricing";
 import {
   deletePost,
   getPostAnalytics,
@@ -297,6 +297,10 @@ export interface AppState {
    *  mock mode (no zernioPostId to poll). */
   syncPostStatuses: () => Promise<void>;
   topUpPosts: (count: number) => void;
+  /** Permanently raise this user's connected-account cap by `count`. Called
+   *  after a MoMo-paid account top-up pack succeeds. No-op for users on an
+   *  unlimited plan. */
+  topUpAccounts: (count: number) => void;
   lookupOrg: (code: string) => Org | undefined;
   setPlan: (plan: PlanId, billingCycle?: "monthly" | "annual") => void;
   addClient: (name: string) => Client;
@@ -360,8 +364,8 @@ const SEED_ORGS: Org[] = [
     inviteCode: "ELYON2026",
     memberCount: 742,
     seatLimit: 1000,
-    monthlyUgx: 5_000,
-    annualUgx: 48_000,
+    monthlyUgx: 15_000,
+    annualUgx: 144_000,
     trendingPosts: [
       {
         id: "t1",
@@ -435,8 +439,8 @@ const SEED_ORGS: Org[] = [
     inviteCode: "EQUITY-SME",
     memberCount: 318,
     seatLimit: 1000,
-    monthlyUgx: 5_000,
-    annualUgx: 48_000,
+    monthlyUgx: 15_000,
+    annualUgx: 144_000,
     trendingPosts: [
       {
         id: "t1",
@@ -509,21 +513,15 @@ const SEED_POST_IDS = new Set(["p1", "p2", "p3"]);
 const dropSeedPosts = (posts: ScheduledPost[]): ScheduledPost[] =>
   posts.filter((p) => !SEED_POST_IDS.has(p.id));
 
+/**
+ * Quota shape for a plan. We read straight off the PLANS table so the
+ * pricing page and the runtime state can never drift out of sync.
+ */
 const quotasFor = (
   plan: PlanId
 ): { posts: number | "unlimited"; accounts: number | "unlimited" } => {
-  switch (plan) {
-    case "free":
-      return { posts: 5, accounts: 1 };
-    case "starter":
-      return { posts: 15, accounts: 2 };
-    case "business":
-      return { posts: 50, accounts: 5 };
-    case "agency":
-      return { posts: "unlimited", accounts: 15 };
-    case "org":
-      return { posts: 50, accounts: 5 };
-  }
+  const p = getPlan(plan);
+  return { posts: p.monthlyPosts, accounts: p.socialAccounts };
 };
 
 const LS_KEY = "posta-ug:v2";
@@ -1076,6 +1074,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           if (!u) return u;
           if (u.postsQuota === "unlimited") return u;
           return { ...u, postsQuota: (u.postsQuota as number) + count };
+        });
+      },
+      topUpAccounts(count) {
+        setUser((u) => {
+          if (!u) return u;
+          if (u.accountsQuota === "unlimited") return u;
+          return { ...u, accountsQuota: (u.accountsQuota as number) + count };
         });
       },
       lookupOrg(code) {

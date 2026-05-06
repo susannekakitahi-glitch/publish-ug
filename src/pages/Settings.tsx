@@ -15,6 +15,7 @@ export default function Settings() {
     user,
     logout,
     topUpPosts,
+    topUpAccounts,
     setPlan,
     templates,
     updateTemplate,
@@ -24,6 +25,7 @@ export default function Settings() {
     resumeRecurringRule,
     removeRecurringRule,
     posts: allPosts,
+    accounts: allAccounts,
     currentClientId,
     clients,
   } = useApp();
@@ -32,6 +34,7 @@ export default function Settings() {
     label: string;
     amount: number;
     posts?: number;
+    accounts?: number;
     onDone: () => void;
   } | null>(null);
 
@@ -89,13 +92,38 @@ export default function Settings() {
           </span>
           <span className="pill good">active</span>
         </div>
+        <div className="small muted" style={{ marginTop: 8 }}>
+          {allAccounts.length} of{" "}
+          {user.accountsQuota === "unlimited"
+            ? "unlimited"
+            : user.accountsQuota}{" "}
+          connected accounts
+        </div>
+        {user.accountsQuota !== "unlimited" && (
+          <div className="quota-bar" aria-hidden style={{ marginTop: 6 }}>
+            <div
+              className="quota-bar-fill"
+              style={{
+                width: `${Math.min(
+                  100,
+                  (allAccounts.length / (user.accountsQuota as number)) * 100
+                )}%`,
+                background:
+                  allAccounts.length >= (user.accountsQuota as number)
+                    ? "var(--bad)"
+                    : "linear-gradient(90deg, var(--accent), var(--good))",
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {plan.packs.length > 0 && (
         <div className="card">
-          <strong>Top up with a post pack</strong>
+          <strong>Top up</strong>
           <p className="small muted">
-            One-off MoMo payment. Goes straight onto your account.
+            One-off MoMo payment for posts and reports, monthly add-on for
+            extra connected accounts. Goes straight onto your account.
           </p>
           <div className="col" style={{ marginTop: 10 }}>
             {plan.packs.map((pk) => (
@@ -114,8 +142,10 @@ export default function Settings() {
                       label: pk.label,
                       amount: pk.priceUgx,
                       posts: pk.posts,
+                      accounts: pk.accounts,
                       onDone: () => {
                         if (pk.posts) topUpPosts(pk.posts);
+                        if (pk.accounts) topUpAccounts(pk.accounts);
                       },
                     })
                   }
