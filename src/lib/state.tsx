@@ -1090,13 +1090,37 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setPlan(plan, billingCycle = "monthly") {
         setUser((u) => {
           if (!u) return u;
-          const q = quotasFor(plan);
+          const next = quotasFor(plan);
+          const prev = quotasFor(u.plan);
+          // Preserve any paid top-ups across a plan change. Without this,
+          // a Starter user who bought a +5 account top-up (UGX 110k/mo)
+          // and then upgrades to Business has their quota silently
+          // reset to the new base — losing slots they're still paying
+          // for. We compute the delta between the user's current quota
+          // and the *old* plan's base, then layer it on top of the
+          // *new* plan's base. "unlimited" on either side short-circuits
+          // to the new value.
+          const carryQuota = (
+            current: number | "unlimited",
+            oldBase: number | "unlimited",
+            newBase: number | "unlimited"
+          ): number | "unlimited" => {
+            if (newBase === "unlimited") return "unlimited";
+            if (current === "unlimited" || oldBase === "unlimited")
+              return newBase;
+            const delta = Math.max(0, current - oldBase);
+            return newBase + delta;
+          };
           return {
             ...u,
             plan,
             billingCycle,
-            postsQuota: q.posts,
-            accountsQuota: q.accounts,
+            postsQuota: carryQuota(u.postsQuota, prev.posts, next.posts),
+            accountsQuota: carryQuota(
+              u.accountsQuota,
+              prev.accounts,
+              next.accounts
+            ),
           };
         });
       },
