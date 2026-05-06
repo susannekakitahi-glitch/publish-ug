@@ -14,6 +14,9 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   threads: "Threads",
   reddit: "Reddit",
   bluesky: "Bluesky",
+  snapchat: "Snapchat",
+  discord: "Discord",
+  gmb: "Google Business",
   whatsapp: "WhatsApp",
   telegram: "Telegram",
 };
@@ -30,6 +33,9 @@ const shortPlatform = (p: Platform) => {
     threads: "TH",
     reddit: "RD",
     bluesky: "BS",
+    snapchat: "SC",
+    discord: "DC",
+    gmb: "GB",
     whatsapp: "WA",
     telegram: "TG",
   };

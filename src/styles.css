@@ -1211,6 +1211,41 @@ p {
 .pp-threads .pp-card { border-top: 3px solid #000; }
 .pp-reddit .pp-card { border-top: 3px solid #ff4500; }
 .pp-bluesky .pp-card { border-top: 3px solid #0085ff; }
+.pp-snapchat .pp-card { border-top: 3px solid #fffc00; background: #000; color: #fff; }
+.pp-snapchat .pp-card .pp-body { color: #fff; }
+.pp-discord .pp-card { border-top: 3px solid #5865f2; background: #313338; color: #dbdee1; }
+.pp-discord .pp-card .pp-body { color: #dbdee1; }
+.pp-discord .pp-name { color: #fff; }
+.pp-gmb .pp-card { border-top: 3px solid #4285f4; }
+
+/* Discord: the channel header reads as a darker server-list bar; the
+ * body sits in the lighter chat area underneath. */
+.pp-discord-channel {
+  background: #2b2d31;
+  color: #f2f3f5;
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid #1e1f22;
+}
+
+/* Google Business: business-name header has a small location pin
+ * lookalike, then the update body below. */
+.pp-gmb-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 0;
+  font-size: 12px;
+  color: #1f2937;
+}
+.pp-gmb-pin {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #4285f4;
+  display: inline-block;
+  flex-shrink: 0;
+}
 
 /* Pinterest: portrait pin styling — title gets a slightly larger
  * weight; the description body stays compact. */
@@ -1784,6 +1819,9 @@ body.landing-theme .landing-gradient-word {
 .landing-plat-threads   { background: #000; border-color: rgba(255,255,255,0.16); color: #fff; }
 .landing-plat-reddit    { background: #FF4500; border-color: #FF4500; color: #fff; }
 .landing-plat-bluesky   { background: #0085FF; border-color: #0085FF; color: #fff; }
+.landing-plat-snapchat  { background: #FFFC00; border-color: #FFFC00; color: #000; }
+.landing-plat-discord   { background: #5865F2; border-color: #5865F2; color: #fff; }
+.landing-plat-gmb       { background: #4285F4; border-color: #4285F4; color: #fff; }
 .landing-plat-whatsapp  { background: #25D366; border-color: #25D366; color: #fff; }
 .landing-plat-telegram  { background: #26A5E4; border-color: #26A5E4; color: #fff; }
 
@@ -1802,6 +1840,9 @@ body.landing-theme .landing-gradient-word {
 .landing-plat-threads:hover   { background: #000; }
 .landing-plat-reddit:hover    { background: #FF4500; }
 .landing-plat-bluesky:hover   { background: #0085FF; }
+.landing-plat-snapchat:hover  { background: #FFFC00; }
+.landing-plat-discord:hover   { background: #5865F2; }
+.landing-plat-gmb:hover       { background: #4285F4; }
 .landing-plat-whatsapp:hover  { background: #25D366; }
 .landing-plat-telegram:hover  { background: #26A5E4; }
 .landing-plat-chip:hover { filter: brightness(1.12); }

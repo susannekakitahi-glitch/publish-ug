@@ -210,6 +210,9 @@ export default function Onboarding() {
           threads: "threads",
           reddit: "reddit",
           bluesky: "bluesky",
+          snapchat: "snapchat",
+          discord: "discord",
+          "google-business-profile": "gmb",
           whatsapp: "whatsapp",
           telegram: "telegram",
         };
@@ -482,6 +485,9 @@ export default function Onboarding() {
                           threads: "threads",
                           reddit: "reddit",
                           bluesky: "bluesky",
+                          snapchat: "snapchat",
+                          discord: "discord",
+                          "google-business-profile": "gmb",
                           whatsapp: "whatsapp",
                           telegram: "telegram",
                         };
@@ -571,6 +577,9 @@ export default function Onboarding() {
                           threads: "threads",
                           reddit: "reddit",
                           bluesky: "bluesky",
+                          snapchat: "snapchat",
+                          discord: "discord",
+                          "google-business-profile": "gmb",
                           whatsapp: "whatsapp",
                           telegram: "telegram",
                         } as Record<string, Platform>)[a.platform] ?? "facebook"
@@ -609,6 +618,9 @@ export default function Onboarding() {
                           threads: "threads",
                           reddit: "reddit",
                           bluesky: "bluesky",
+                          snapchat: "snapchat",
+                          discord: "discord",
+                          "google-business-profile": "gmb",
                           whatsapp: "whatsapp",
                           telegram: "telegram",
                         };
@@ -700,6 +712,9 @@ const SIGN_OUT_URLS: Partial<Record<Platform, string>> = {
   pinterest: "https://www.pinterest.com/logout/",
   threads: "https://www.threads.net/logout",
   reddit: "https://www.reddit.com/logout",
+  snapchat: "https://accounts.snapchat.com/accounts/logout",
+  discord: "https://discord.com/logout",
+  gmb: "https://accounts.google.com/Logout",
 };
 
 const PLATFORM_LABEL: Record<Platform, string> = {
@@ -713,6 +728,9 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   threads: "Threads",
   reddit: "Reddit",
   bluesky: "Bluesky",
+  snapchat: "Snapchat",
+  discord: "Discord",
+  gmb: "Google Business",
   whatsapp: "WhatsApp",
   telegram: "Telegram",
 };

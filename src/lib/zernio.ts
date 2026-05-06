@@ -24,6 +24,11 @@ export const ZERNIO_PLATFORM: Record<Platform, string> = {
   threads: "threads",
   reddit: "reddit",
   bluesky: "bluesky",
+  snapchat: "snapchat",
+  discord: "discord",
+  // Posta uses the short id "gmb"; Zernio's API key is the full
+  // "google-business-profile" string.
+  gmb: "google-business-profile",
   whatsapp: "whatsapp",
   telegram: "telegram",
 };
