@@ -111,13 +111,14 @@ export const PLANS: Plan[] = [
     monthlyPosts: 30,
     teamSeats: 1,
     features: [
-      "2 connected accounts",
+      "2 connected accounts (top up for more)",
       "30 scheduled posts / month",
       "Photo, carousel, short video",
       "MoMo / Airtel Money billing",
     ],
     packs: [
       { kind: "posts", label: "10-post pack", posts: 10, priceUgx: 5_000 },
+      ...ACCOUNT_TOPUPS,
     ],
   },
   {
