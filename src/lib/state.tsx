@@ -524,8 +524,9 @@ const quotasFor = (
   return { posts: p.monthlyPosts, accounts: p.socialAccounts };
 };
 
-const LS_KEY = "posta-ug:v2";
+const LS_KEY = "posta-ug:v3";
 const LS_KEY_LEGACY = "posta-ug:v1";
+const LS_KEY_V2 = "posta-ug:v2";
 
 interface Persisted {
   user: User | null;
@@ -539,12 +540,42 @@ interface Persisted {
 
 const loadPersisted = (): Persisted | null => {
   try {
-    const raw =
-      localStorage.getItem(LS_KEY) ?? localStorage.getItem(LS_KEY_LEGACY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Persisted>;
+    const v3 = localStorage.getItem(LS_KEY);
+    if (v3) {
+      const parsed = JSON.parse(v3) as Partial<Persisted>;
+      return {
+        user: parsed.user ?? null,
+        posts: parsed.posts ?? [],
+        accounts: parsed.accounts ?? [],
+        clients: parsed.clients ?? [],
+        currentClientId: parsed.currentClientId ?? null,
+        templates: parsed.templates ?? [],
+        recurringRules: parsed.recurringRules ?? [],
+      };
+    }
+    // v2 → v3 migration: account caps shrank for several plans
+    // (business 5→3, agency 15→8, org 5→2) when we re-costed Posta
+    // against Zernio's per-account model. Existing localStorage rows
+    // still carry the old, higher accountsQuota/postsQuota. Clamp
+    // those to the *new* plan base so the topUpAccounts delta logic in
+    // setPlan doesn't fabricate phantom top-up slots later. Anyone
+    // who genuinely had a paid top-up on the old model gets reset to
+    // base — acceptable given top-up packs only become a thing in
+    // this same release.
+    const v2 = localStorage.getItem(LS_KEY_V2) ?? localStorage.getItem(LS_KEY_LEGACY);
+    if (!v2) return null;
+    const parsed = JSON.parse(v2) as Partial<Persisted>;
+    let user = parsed.user ?? null;
+    if (user) {
+      const base = quotasFor(user.plan);
+      user = {
+        ...user,
+        postsQuota: base.posts,
+        accountsQuota: base.accounts,
+      };
+    }
     return {
-      user: parsed.user ?? null,
+      user,
       posts: parsed.posts ?? [],
       accounts: parsed.accounts ?? [],
       clients: parsed.clients ?? [],
